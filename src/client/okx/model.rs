@@ -1,6 +1,3 @@
-#![allow(dead_code)]
-
-use std::pin::Pin;
 use crate::{
     Timestamp,
     client::{IntoDataStream, RawData},
@@ -14,6 +11,7 @@ use futures::{SinkExt, Stream, StreamExt};
 use http::StatusCode;
 use reqwest::Client;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use std::pin::Pin;
 use tokio_websockets::Message;
 use url::Url;
 

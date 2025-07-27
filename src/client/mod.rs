@@ -1,4 +1,5 @@
 pub mod okx;
+pub mod okx_xdp;
 
 pub trait Request {
     type Response;
@@ -8,9 +9,7 @@ pub trait IntoDataStream {
     type Error;
     type Stream;
 
-    fn into_stream(
-        self,
-    ) -> impl std::future::Future<Output = Result<Self::Stream, Self::Error>> + Send;
+    fn into_stream(self) -> impl Future<Output = Result<Self::Stream, Self::Error>> + Send;
 }
 
 pub trait RawData {
