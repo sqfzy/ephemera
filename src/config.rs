@@ -1,7 +1,7 @@
-use serde::Deserialize;
-use std::net::Ipv4Addr;
 use eyre::Result;
 use figment::providers::{Format, Toml};
+use serde::Deserialize;
+use std::net::Ipv4Addr;
 
 #[derive(Deserialize, Debug)]
 pub struct AppConfig {
@@ -15,9 +15,11 @@ pub struct AppConfig {
     pub output_csv_path: String,
 }
 
-pub fn load() -> Result<AppConfig> {
-    let config: AppConfig = figment::Figment::new()
-        .merge(Toml::file("config.toml"))
-        .extract()?;
-    Ok(config)
+impl AppConfig {
+    pub fn load() -> Result<AppConfig> {
+        let config: AppConfig = figment::Figment::new()
+            .merge(Toml::file("config.toml"))
+            .extract()?;
+        Ok(config)
+    }
 }

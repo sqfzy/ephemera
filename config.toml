@@ -1,0 +1,26 @@
+# 日志级别
+log_level = "info"
+
+# --- XDP/XSK 配置 ---
+# 你的 XDP 程序将绑定到沙箱中的 veth_guest 接口
+xsk_if_name = "veth_guest"
+
+# 替换成你上一步获取到的 veth_guest 的 MAC 地址
+xsk_mac = "da:f8:b0:6f:06:18" 
+
+# veth_guest 的 IP 地址
+xsk_ip = "192.168.100.2"
+
+# 你的应用程序监听的端口
+xsk_port = 8080
+
+# --- 网络路由配置 ---
+# 沙箱的网关，即主机侧 veth_host 的 IP
+gateway_ip = "192.168.100.1"
+
+# --- 应用程序逻辑配置 ---
+# 你需要连接的外部 WebSocket 服务器地址
+ws_uri = "wss://ws.okx.com/ws/" # 这是一个公开的测试 WebSocket Echo 服务
+
+# CSV 输出路径
+output_csv_path = "output.csv"

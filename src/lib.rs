@@ -1,4 +1,5 @@
 #![feature(try_blocks)]
+#![feature(gen_blocks)]
 
 pub mod client;
 pub mod data;

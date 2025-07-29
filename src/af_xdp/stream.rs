@@ -3,7 +3,7 @@ use smoltcp::{iface::SocketHandle, socket::tcp::State, time::Instant};
 use std::{
     fmt::Debug,
     io::{self, Read, Write},
-    net::SocketAddr,
+    net::ToSocketAddrs,
 };
 
 use crate::af_xdp::reactor::with_reactor;
@@ -18,7 +18,7 @@ impl XdpStream {
         Self { handle }
     }
 
-    pub fn connect(addr: SocketAddr, local_port: u16) -> Result<Self> {
+    pub fn connect(addr: impl ToSocketAddrs, local_port: u16) -> Result<Self> {
         with_reactor(|reactor| {
             let handle = reactor.connect(addr, local_port)?;
 

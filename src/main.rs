@@ -1,8 +1,10 @@
-use af_xdp_ws::client::{
-    IntoDataStream,
-    okx::model::{OkxArg, OkxTradeData, OkxWsRequest},
+use af_xdp_ws::{
+    client::{
+        okx::model::{OkxArg, OkxTradeData, OkxWsRequest},
+        okx_xdp::model::XdpOkxWsRequest,
+    },
+    stream::IntoDataStream,
 };
-use futures::StreamExt;
 
 #[tokio::main]
 async fn main() {
@@ -15,9 +17,10 @@ async fn main() {
         }],
         ..Default::default()
     };
-    let mut stream = req.into_stream().await.unwrap();
+    let xdpreq = XdpOkxWsRequest(req);
+    let stream = xdpreq.into_stream().await.unwrap();
 
-    while let Some(data) = stream.next().await {
+    for data in stream {
         println!("debug0: {data:?}");
     }
 }

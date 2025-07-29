@@ -1,8 +1,9 @@
 use crate::{
     Timestamp,
-    client::{IntoDataStream, RawData},
+    client::RawData,
     data::{BookData, CandleData, TradeData},
     order::Side,
+    stream::IntoDataStream,
 };
 use async_stream::stream;
 use bytestring::ByteString;
