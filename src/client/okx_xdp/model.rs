@@ -1,4 +1,4 @@
-use eyre::ensure;
+use eyre::{ContextCompat, ensure};
 use serde::de::DeserializeOwned;
 use std::ops::{Deref, DerefMut};
 use ws_tool::{
@@ -41,10 +41,13 @@ where
     type Stream = Box<dyn Iterator<Item = Result<D::Data, Self::Error>>>;
 
     async fn into_stream(self) -> Result<Self::Stream, Self::Error> {
-        let end_point: &str = self.0.end_point.as_ref();
-        let stream = XdpStream::connect(end_point, 0)?;
+        let uri = self.end_point.parse::<http::Uri>()?;
+        let host = uri.host().wrap_err("Invalid URI: missing host")?;
+        // TODO: 
+        // let host = "104.18.43.174";
+        let port = uri.port_u16().wrap_err("Invalid URI: missing port")?;
 
-        let uri = end_point.parse::<http::Uri>()?;
+        let stream = XdpStream::connect((host, port))?;
         let tls_stream = wrap_native_tls(stream, get_host(&uri)?, vec![])?;
 
         let mut client = ws_tool::ClientBuilder::new().with_stream(

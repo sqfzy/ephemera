@@ -1,5 +1,5 @@
 # 日志级别
-log_level = "info"
+log_level = "trace"
 
 # --- XDP/XSK 配置 ---
 # 你的 XDP 程序将绑定到沙箱中的 veth_guest 接口

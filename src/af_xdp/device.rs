@@ -4,11 +4,7 @@ use smoltcp::{
     time::Instant,
 };
 use std::{
-    fmt::Debug,
-    io,
-    num::NonZeroU32,
-    ops::Range,
-    os::fd::{AsRawFd, RawFd},
+    fmt::Debug, io, net::TcpListener, num::NonZeroU32, ops::Range, os::fd::{AsRawFd, RawFd}
 };
 use xsk_rs::{
     CompQueue, FillQueue, FrameDesc,
@@ -42,8 +38,10 @@ impl<const FRAME_COUNT: usize> XdpDevice<FRAME_COUNT> {
 
         let frame_count =
             NonZeroU32::new(FRAME_COUNT as u32).wrap_err("FRAME_COUNT must be non-zero")?;
-        let (umem, descs) = Umem::new(UmemConfig::default(), frame_count, true)?;
+        // PERF: huge page
+        let (umem, descs) = Umem::new(UmemConfig::default(), frame_count, false)?;
 
+        // PERF: 
         let socket_conf = SocketConfig::builder()
             .xdp_flags(XdpFlags::XDP_FLAGS_SKB_MODE)
             .build();

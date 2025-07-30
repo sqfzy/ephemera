@@ -18,9 +18,9 @@ impl XdpStream {
         Self { handle }
     }
 
-    pub fn connect(addr: impl ToSocketAddrs, local_port: u16) -> Result<Self> {
+    pub fn connect(addr: impl ToSocketAddrs) -> Result<Self> {
         with_reactor(|reactor| {
-            let handle = reactor.connect(addr, local_port)?;
+            let handle = reactor.connect(addr)?;
 
             while reactor.socket_mut(handle).state() != State::Established {
                 reactor.poll(Instant::now())?;

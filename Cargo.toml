@@ -35,5 +35,6 @@ native-tls = "0.2.14"
 futures = "0.3.31"
 async-stream = "0.3.6"
 tokio-websockets = { version = "0.12.0", features = ["client", "native-tls", "rand", "openssl"] }
+portpicker = "0.1.1"
 
 [dev-dependencies]

@@ -1,4 +1,5 @@
-use eyre::Result;
+use eyre::{ContextCompat, Result};
+use portpicker::pick_unused_port;
 use smoltcp::{
     iface::{Interface, SocketHandle, SocketSet},
     socket::tcp::{Socket, SocketBuffer},
@@ -73,7 +74,7 @@ where
     }
 
     /// 创建一个新的 TCP 连接并返回其句柄。
-    pub fn connect(&mut self, addr: impl ToSocketAddrs, local_port: u16) -> Result<SocketHandle> {
+    pub fn connect(&mut self, addr: impl ToSocketAddrs) -> Result<SocketHandle> {
         let tcp_socket = Socket::new(
             SocketBuffer::new(vec![0; 4 * 1024]),
             SocketBuffer::new(vec![0; 4 * 1024]),
@@ -84,6 +85,7 @@ where
 
         let mut addrs = addr.to_socket_addrs()?.peekable();
         while let Some(addr) = addrs.next() {
+            let local_port = pick_unused_port().wrap_err("No available port found")?;
             match socket.connect(self.iface.context(), addr, local_port) {
                 Ok(_) => break,
                 Err(_) if addrs.peek().is_some() => continue,
