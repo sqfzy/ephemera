@@ -4,7 +4,7 @@ use smoltcp::{
     time::Instant,
 };
 use std::{
-    fmt::Debug, io, net::TcpListener, num::NonZeroU32, ops::Range, os::fd::{AsRawFd, RawFd}
+    fmt::Debug, io, num::NonZeroU32, ops::Range, os::fd::{AsRawFd, RawFd}
 };
 use xsk_rs::{
     CompQueue, FillQueue, FrameDesc,
