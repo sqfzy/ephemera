@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use af_xdp_ws::{
+use af_xdp::{
     client::{
         okx::model::{OkxArg, OkxTradeData, OkxWsRequest},
         okx_xdp::model::XdpOkxWsRequest,

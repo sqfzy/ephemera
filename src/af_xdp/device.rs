@@ -68,7 +68,7 @@ impl<const FRAME_COUNT: usize> XdpDevice<FRAME_COUNT> {
         })
     }
 
-    fn get_fd_can_read(&mut self) -> Option<FrameDesc> {
+    pub fn get_fd_can_read(&mut self) -> Option<FrameDesc> {
         debug_assert!(self.rx_fds_can_read.start <= self.rx_fds_can_read.end);
 
         // Example: 初始rx_fds_can_read为空
@@ -104,7 +104,7 @@ impl<const FRAME_COUNT: usize> XdpDevice<FRAME_COUNT> {
         Some(rx_fd)
     }
 
-    fn get_fd_can_send(&mut self) -> Option<FrameDesc> {
+    pub fn get_fd_can_send(&mut self) -> Option<FrameDesc> {
         debug_assert!(self.tx_fds_can_send.start <= self.tx_fds_can_send.end);
 
         // Example: 初始tx_fds_can_read为所有fd

@@ -14,10 +14,6 @@ pub struct XdpStream {
 }
 
 impl XdpStream {
-    pub fn new(handle: SocketHandle) -> Self {
-        Self { handle }
-    }
-
     pub fn connect(addr: impl ToSocketAddrs) -> Result<Self> {
         with_reactor(|reactor| {
             let handle = reactor.connect(addr)?;
@@ -26,7 +22,7 @@ impl XdpStream {
                 reactor.poll(Instant::now())?;
             }
 
-            Ok(Self::new(handle))
+            Ok(Self { handle })
         })
     }
 }
