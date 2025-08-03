@@ -2104,6 +2104,7 @@ pub type _bindgen_ty_7 = ::std::os::raw::c_uint;
 pub const BPF_F_PSEUDO_HDR: _bindgen_ty_8 = 16;
 pub const BPF_F_MARK_MANGLED_0: _bindgen_ty_8 = 32;
 pub const BPF_F_MARK_ENFORCE: _bindgen_ty_8 = 64;
+pub const BPF_F_IPV6: _bindgen_ty_8 = 128;
 pub type _bindgen_ty_8 = ::std::os::raw::c_uint;
 pub const BPF_F_TUNINFO_IPV6: _bindgen_ty_9 = 1;
 pub type _bindgen_ty_9 = ::std::os::raw::c_uint;
@@ -3190,13 +3191,14 @@ pub struct bpf_link_info__bindgen_ty_1__bindgen_ty_11__bindgen_ty_1__bindgen_ty_
     pub name_len: __u32,
     pub offset: __u32,
     pub cookie: __u64,
+    pub ref_ctr_offset: __u64,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of bpf_link_info__bindgen_ty_1__bindgen_ty_11__bindgen_ty_1__bindgen_ty_1"]
         [::std::mem::size_of::<
             bpf_link_info__bindgen_ty_1__bindgen_ty_11__bindgen_ty_1__bindgen_ty_1,
-        >() - 24usize];
+        >() - 32usize];
     ["Alignment of bpf_link_info__bindgen_ty_1__bindgen_ty_11__bindgen_ty_1__bindgen_ty_1"]
         [::std::mem::align_of::<
             bpf_link_info__bindgen_ty_1__bindgen_ty_11__bindgen_ty_1__bindgen_ty_1,
@@ -3205,6 +3207,7 @@ const _: () = {
     ["Offset of field: bpf_link_info__bindgen_ty_1__bindgen_ty_11__bindgen_ty_1__bindgen_ty_1::name_len"] [:: std :: mem :: offset_of ! (bpf_link_info__bindgen_ty_1__bindgen_ty_11__bindgen_ty_1__bindgen_ty_1 , name_len) - 8usize] ;
     ["Offset of field: bpf_link_info__bindgen_ty_1__bindgen_ty_11__bindgen_ty_1__bindgen_ty_1::offset"] [:: std :: mem :: offset_of ! (bpf_link_info__bindgen_ty_1__bindgen_ty_11__bindgen_ty_1__bindgen_ty_1 , offset) - 12usize] ;
     ["Offset of field: bpf_link_info__bindgen_ty_1__bindgen_ty_11__bindgen_ty_1__bindgen_ty_1::cookie"] [:: std :: mem :: offset_of ! (bpf_link_info__bindgen_ty_1__bindgen_ty_11__bindgen_ty_1__bindgen_ty_1 , cookie) - 16usize] ;
+    ["Offset of field: bpf_link_info__bindgen_ty_1__bindgen_ty_11__bindgen_ty_1__bindgen_ty_1::ref_ctr_offset"] [:: std :: mem :: offset_of ! (bpf_link_info__bindgen_ty_1__bindgen_ty_11__bindgen_ty_1__bindgen_ty_1 , ref_ctr_offset) - 24usize] ;
 };
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]

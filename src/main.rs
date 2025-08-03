@@ -1,18 +1,18 @@
 use std::str::FromStr;
 
-use af_xdp::{
+use ephemera::{
     client::{
         okx::model::{OkxArg, OkxTradeData, OkxWsRequest},
         okx_xdp::model::XdpOkxWsRequest,
     },
-    config::AppConfig,
+    config::EphemaraConfig,
     stream::IntoDataStream,
 };
 use log::LevelFilter;
 
 #[tokio::main]
 async fn main() {
-    let config = AppConfig::load().expect("Failed to load config");
+    let config = EphemaraConfig::load().expect("Failed to load config");
 
     env_logger::builder()
         .filter_level(LevelFilter::from_str(&config.log_level).unwrap())

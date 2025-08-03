@@ -7,7 +7,7 @@ use ws_tool::{
 };
 
 use crate::{
-    af_xdp::stream::XdpStream,
+    af_xdp::stream::XdpTcpStream,
     client::{
         RawData,
         okx::model::{OkxWsDataResponse, OkxWsRequest, OkxWsResponse},
@@ -47,7 +47,7 @@ where
         // let host = "104.18.43.174";
         let port = uri.port_u16().wrap_err("Invalid URI: missing port")?;
 
-        let stream = XdpStream::connect((host, port))?;
+        let stream = XdpTcpStream::connect((host, port))?;
         let tls_stream = wrap_native_tls(stream, get_host(&uri)?, vec![])?;
 
         let mut client = ws_tool::ClientBuilder::new().with_stream(

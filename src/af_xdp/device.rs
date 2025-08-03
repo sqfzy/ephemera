@@ -4,7 +4,11 @@ use smoltcp::{
     time::Instant,
 };
 use std::{
-    fmt::Debug, io, net::TcpListener, num::NonZeroU32, ops::Range, os::fd::{AsRawFd, RawFd}
+    fmt::Debug,
+    io,
+    num::NonZeroU32,
+    ops::Range,
+    os::fd::{AsRawFd, RawFd},
 };
 use xsk_rs::{
     CompQueue, FillQueue, FrameDesc,
@@ -41,7 +45,7 @@ impl<const FRAME_COUNT: usize> XdpDevice<FRAME_COUNT> {
         // PERF: huge page
         let (umem, descs) = Umem::new(UmemConfig::default(), frame_count, false)?;
 
-        // PERF: 
+        // PERF:
         let socket_conf = SocketConfig::builder()
             .xdp_flags(XdpFlags::XDP_FLAGS_SKB_MODE)
             .build();
@@ -208,6 +212,8 @@ impl<'a> RxToken for XskRxToken<'a> {
     }
 }
 
+/// When this token is consum, the kernel will not be awakened. 
+/// It is up to the user to decide when to wake it up (by calling [' wakeup kernel ']).
 pub struct XskTxToken<'a> {
     umem: &'a Umem,
     // 指向umem某个frame
@@ -216,13 +222,23 @@ pub struct XskTxToken<'a> {
 }
 
 impl<'a> TxToken for XskTxToken<'a> {
-    fn consume<R, F>(mut self, _len: usize, f: F) -> R
+    fn consume<R, F>(mut self, len: usize, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        // TODO: len可能大于data的容量?
-
+        // 从 UMEM 获取整个帧的可变数据区域
         let mut data_mut = unsafe { self.umem.data_mut(&mut self.fd) };
+        let mut cursor = data_mut.cursor();
+
+        assert!(
+            len <= cursor.buf_len(),
+            "Requested length {} exceeds available buffer length {}",
+            len,
+            cursor.buf_len()
+        );
+
+        cursor.set_pos(len);
+
         let result = f(data_mut.contents_mut());
 
         unsafe { self.tx_q.produce_one(&self.fd) };

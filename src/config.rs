@@ -1,10 +1,10 @@
 use eyre::Result;
-use figment::providers::{Format, Toml};
+use figment::providers::{Env, Format, Toml};
 use serde::Deserialize;
 use std::net::Ipv4Addr;
 
 #[derive(Deserialize, Debug)]
-pub struct AppConfig {
+pub struct EphemaraConfig {
     pub log_level: String,
     pub xsk_if_name: String,
     pub xsk_mac: String,
@@ -15,10 +15,11 @@ pub struct AppConfig {
     pub output_csv_path: String,
 }
 
-impl AppConfig {
-    pub fn load() -> Result<AppConfig> {
-        let config: AppConfig = figment::Figment::new()
+impl EphemaraConfig {
+    pub fn load() -> Result<EphemaraConfig> {
+        let config: EphemaraConfig = figment::Figment::new()
             .merge(Toml::file("config.toml"))
+            .merge(Env::prefixed("APP_"))
             .extract()?;
         Ok(config)
     }
