@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use ephemera::{
     client::{
         okx::model::{OkxArg, OkxTradeData, OkxWsRequest},
@@ -8,15 +6,10 @@ use ephemera::{
     config::EphemaraConfig,
     stream::IntoDataStream,
 };
-use log::LevelFilter;
 
 #[tokio::main]
 async fn main() {
     let config = EphemaraConfig::load().expect("Failed to load config");
-
-    env_logger::builder()
-        .filter_level(LevelFilter::from_str(&config.log_level).unwrap())
-        .init();
 
     let req = OkxWsRequest::<OkxTradeData> {
         end_point: "wss://ws.okx.com:433/ws/v5/public".into(),

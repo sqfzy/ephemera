@@ -1,5 +1,5 @@
 use smoltcp::{
-    iface::{Interface, SocketSet},
+    iface::{Interface, PollResult, SocketSet},
     time::{Duration, Instant},
     wire::{EthernetAddress, HardwareAddress, IpAddress, IpCidr},
 };
@@ -72,17 +72,14 @@ where
     }
 
     /// 驱动整个网络栈，处理所有事件。
-    pub fn poll(&mut self, timeout: Option<Duration>) -> io::Result<()> {
+    pub fn poll(&mut self, timeout: Option<Duration>) -> io::Result<PollResult> {
         let now = Instant::now();
-
-        self.iface.poll(now, &mut self.device, &mut self.sockets);
-
-        // 发送数据需要唤醒内核
-        self.device.wakeup_kernel()?;
 
         let delay = self.iface.poll_delay(now, &self.sockets).or(timeout);
         smoltcp::phy::wait(self.device.as_raw_fd(), delay)?;
 
-        Ok(())
+        let res = self.iface.poll(now, &mut self.device, &mut self.sockets);
+
+        Ok(res)
     }
 }

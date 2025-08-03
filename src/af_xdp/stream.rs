@@ -11,7 +11,7 @@ use std::{
 };
 
 pub struct XdpTcpStream {
-    handle: SocketHandle,
+    pub(crate) handle: SocketHandle,
 }
 
 impl XdpTcpStream {
@@ -55,8 +55,8 @@ impl Write for XdpTcpStream {
 }
 
 pub struct XdpTcpStreamBorrow<'r> {
-    handle: SocketHandle,
-    reactor: &'r mut XdpReactor,
+    pub(crate) handle: SocketHandle,
+    pub(crate) reactor: &'r mut XdpReactor,
 }
 
 impl<'r> XdpTcpStreamBorrow<'r> {
@@ -86,25 +86,86 @@ impl<'r> XdpTcpStreamBorrow<'r> {
 
         Ok(Self { handle, reactor })
     }
+
+    pub fn shutdown(&mut self) -> io::Result<()> {
+        let socket = self.reactor.sockets.get_mut::<TcpSocket>(self.handle);
+        socket.close();
+
+        while self
+            .reactor
+            .sockets
+            .get_mut::<TcpSocket>(self.handle)
+            .state()
+            != State::Closed
+        {
+            self.reactor.poll(None)?;
+        }
+
+        Ok(())
+    }
 }
 
 impl Read for XdpTcpStreamBorrow<'_> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.reactor
+        loop {
+            let socket = self.reactor.sockets.get_mut::<TcpSocket>(self.handle);
+
+            // check can_recv before shutdown, since there may be some data we haven't handled.
+            if socket.can_recv() {
+                break;
+            }
+
+            if socket.state() != State::Established {
+                self.shutdown()?;
+                return Ok(0);
+            }
+
+            self.reactor.poll(None)?;
+        }
+
+        let n = self
+            .reactor
             .sockets
             .get_mut::<TcpSocket>(self.handle)
             .recv_slice(buf)
-            .map_err(io::Error::other)
+            .map_err(io::Error::other);
+
+        self.reactor.poll(None)?;
+
+        n
     }
 }
 
 impl Write for XdpTcpStreamBorrow<'_> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.reactor
+        loop {
+            let socket = self.reactor.sockets.get_mut::<TcpSocket>(self.handle);
+
+            // check can_send before shutdown, since there may be some data we haven't handled.
+            if socket.can_send() {
+                break;
+            }
+
+            if !socket.is_active() {
+                self.shutdown()?;
+                return Ok(0);
+            }
+
+            self.reactor.poll(None)?;
+        }
+
+        let n = self
+            .reactor
             .sockets
             .get_mut::<TcpSocket>(self.handle)
             .send_slice(buf)
-            .map_err(io::Error::other)
+            .map_err(io::Error::other);
+
+        self.reactor.poll(None)?;
+        // PERF: buffer
+        self.flush()?;
+
+        n
     }
 
     fn flush(&mut self) -> io::Result<()> {

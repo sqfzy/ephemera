@@ -10,6 +10,7 @@ use std::{
     ops::Range,
     os::fd::{AsRawFd, RawFd},
 };
+use tracing::trace;
 use xsk_rs::{
     CompQueue, FillQueue, FrameDesc,
     config::{SocketConfig, UmemConfig, XdpFlags},
@@ -208,11 +209,15 @@ impl<'a> RxToken for XskRxToken<'a> {
     where
         F: FnOnce(&[u8]) -> R,
     {
-        f(unsafe { self.umem.data(&self.fd).contents() })
+        let data = unsafe { self.umem.data(&self.fd) };
+
+        trace!("xdp recv: {:?}", String::from_utf8_lossy(data.contents()));
+
+        f(data.contents())
     }
 }
 
-/// When this token is consum, the kernel will not be awakened. 
+/// When this token is consum, the kernel will not be awakened.
 /// It is up to the user to decide when to wake it up (by calling [' wakeup kernel ']).
 pub struct XskTxToken<'a> {
     umem: &'a Umem,
@@ -237,7 +242,13 @@ impl<'a> TxToken for XskTxToken<'a> {
             cursor.buf_len()
         );
 
+        // smoltcp requires the buffer length must be `len`
         cursor.set_pos(len);
+
+        trace!(
+            "xdp send: {:?}",
+            String::from_utf8_lossy(data_mut.contents())
+        );
 
         let result = f(data_mut.contents_mut());
 
