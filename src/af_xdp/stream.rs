@@ -11,7 +11,7 @@ use std::{
 };
 
 pub struct XdpTcpStream {
-    handle: SocketHandle,
+    pub(crate) handle: SocketHandle,
 }
 
 impl XdpTcpStream {
@@ -55,7 +55,7 @@ impl Write for XdpTcpStream {
 }
 
 pub struct XdpTcpStreamBorrow<'r> {
-    handle: SocketHandle,
+    pub(crate) handle: SocketHandle,
     reactor: &'r mut XdpReactor,
 }
 
