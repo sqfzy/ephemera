@@ -1,0 +1,5 @@
+要让Reactor尽力poll吗？这样的话调用者使用poll时，可能无法看见socket的每个状态变化
+
+smoltcp是面向状态的，而不是过程
+
+将Reactor架构转为epoll多路复用

@@ -1,5 +1,5 @@
 use smoltcp::{
-    iface::{Interface, PollResult, SocketSet},
+    iface::{Interface, SocketSet},
     time::{Duration, Instant},
     wire::{EthernetAddress, HardwareAddress, IpAddress, IpCidr},
 };
@@ -12,12 +12,18 @@ use std::{
 use crate::{af_xdp::device::XdpDevice, config::EphemaraConfig};
 
 pub static XDP_REACTOR: LazyLock<Mutex<XdpReactor>> = LazyLock::new(|| {
-    let config = EphemaraConfig::load().expect("Failed to load config");
+    let EphemaraConfig {
+        xdp_if_name,
+        xdp_mac,
+        xdp_ip,
+        gateway_ip,
+        ..
+    } = EphemaraConfig::load().expect("Failed to load config");
 
-    let device = XdpDevice::new(&config.xsk_if_name).expect("Failed to create XDP device");
+    let device = XdpDevice::new(&xdp_if_name)
+        .unwrap_or_else(|_| panic!("Failed to create XDP device for interface '{xdp_if_name}'"));
 
-    let xsk_mac = config
-        .xsk_mac
+    let xsk_mac = xdp_mac
         .parse::<EthernetAddress>()
         .expect("Failed to parse MAC address");
 
@@ -25,13 +31,13 @@ pub static XDP_REACTOR: LazyLock<Mutex<XdpReactor>> = LazyLock::new(|| {
 
     reactor.iface.update_ip_addrs(|ip_addrs| {
         ip_addrs
-            .push(IpCidr::new(IpAddress::from(config.xsk_ip), 24))
+            .push(IpCidr::new(IpAddress::from(xdp_ip), 24))
             .unwrap();
     });
     reactor
         .iface
         .routes_mut()
-        .add_default_ipv4_route(config.gateway_ip)
+        .add_default_ipv4_route(gateway_ip)
         .expect("Failed to add default route");
 
     Mutex::new(reactor)
@@ -72,14 +78,17 @@ where
     }
 
     /// 驱动整个网络栈，处理所有事件。
-    pub fn poll(&mut self, timeout: Option<Duration>) -> io::Result<PollResult> {
+    pub fn poll(&mut self, timeout: Option<Duration>) -> io::Result<()> {
         let now = Instant::now();
 
         let delay = self.iface.poll_delay(now, &self.sockets).or(timeout);
         smoltcp::phy::wait(self.device.as_raw_fd(), delay)?;
 
-        let res = self.iface.poll(now, &mut self.device, &mut self.sockets);
+        self.iface.poll(now, &mut self.device, &mut self.sockets);
 
-        Ok(res)
+        // PERF:
+        self.device.wakeup_kernel()?;
+
+        Ok(())
     }
 }

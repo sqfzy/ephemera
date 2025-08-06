@@ -5,8 +5,8 @@ if (ip link show test_iface1 | complete | get exit_code) != 0 and (ip link show 
     sudo ip link add test_iface1 type veth peer name test_iface2
 
     # Set interfaces up
-    ip link set test_iface1 up
-    ip link set test_iface2 up
+    sudo ip link set test_iface1 up
+    sudo ip link set test_iface2 up
 
     # Assign IP addresses
     sudo ip addr add 192.168.10.1/24 dev test_iface1

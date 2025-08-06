@@ -4,6 +4,8 @@ use portpicker::pick_unused_port;
 use smoltcp::{
     iface::SocketHandle,
     socket::tcp::{Socket as TcpSocket, SocketBuffer, State},
+    time::Duration,
+    wire::IPV4_HEADER_LEN,
 };
 use std::{
     io::{self, Read, Write},
@@ -17,6 +19,16 @@ pub struct XdpTcpStream {
 impl XdpTcpStream {
     pub fn connect(addr: impl ToSocketAddrs) -> Result<Self> {
         with_reactor(|reactor| XdpTcpStreamBorrow::connect(addr, reactor).map(Into::into))
+    }
+
+    pub fn shutdown(&mut self) -> io::Result<()> {
+        with_reactor(|reactor| {
+            XdpTcpStreamBorrow {
+                handle: self.handle,
+                reactor,
+            }
+            .shutdown()
+        })
     }
 }
 
@@ -61,6 +73,7 @@ pub struct XdpTcpStreamBorrow<'r> {
 
 impl<'r> XdpTcpStreamBorrow<'r> {
     pub fn connect(addr: impl ToSocketAddrs, reactor: &'r mut XdpReactor) -> Result<Self> {
+        println!("debug3");
         let mut socket = TcpSocket::new(
             SocketBuffer::new(vec![0; 4096]),
             SocketBuffer::new(vec![0; 4096]),
@@ -80,26 +93,37 @@ impl<'r> XdpTcpStreamBorrow<'r> {
 
         let handle = reactor.sockets.add(socket);
 
-        while reactor.sockets.get_mut::<TcpSocket>(handle).state() != State::Established {
+        debug_assert_eq!(
+            reactor.sockets.get_mut::<TcpSocket>(handle).state(),
+            State::SynSent,
+        );
+
+        while reactor.sockets.get_mut::<TcpSocket>(handle).state() == State::SynSent {
             reactor.poll(None)?;
         }
 
+        println!("debug4");
         Ok(Self { handle, reactor })
     }
 
     pub fn shutdown(&mut self) -> io::Result<()> {
+        println!("debug7");
         let socket = self.reactor.sockets.get_mut::<TcpSocket>(self.handle);
+
         socket.close();
 
-        while self
-            .reactor
-            .sockets
-            .get_mut::<TcpSocket>(self.handle)
-            .state()
-            != State::Closed
-        {
+        while {
+            let state = self
+                .reactor
+                .sockets
+                .get_mut::<TcpSocket>(self.handle)
+                .state();
+            state != State::Closed && state != State::TimeWait
+        } {
             self.reactor.poll(None)?;
         }
+
+        println!("debug8");
 
         Ok(())
     }
@@ -162,8 +186,6 @@ impl Write for XdpTcpStreamBorrow<'_> {
             .map_err(io::Error::other);
 
         self.reactor.poll(None)?;
-        // PERF: buffer
-        self.flush()?;
 
         n
     }

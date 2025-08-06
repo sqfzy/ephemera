@@ -51,7 +51,11 @@ impl XdpTcpListener {
         &mut self,
         reactor: &'r mut XdpReactor,
     ) -> io::Result<(XdpTcpStreamBorrow<'r>, SocketAddr)> {
-        while reactor.sockets.get_mut::<TcpSocket>(self.handle).state() != State::Established {
+        println!("debug5");
+        while {
+            let socket = reactor.sockets.get_mut::<TcpSocket>(self.handle).state();
+            socket == State::Listen || socket == State::SynReceived
+        } {
             reactor.poll(None)?;
         }
 
@@ -74,6 +78,8 @@ impl XdpTcpListener {
 
         // 将 self 的 handle 更新为新监听器的 handle
         self.handle = new_listener.handle;
+
+        println!("debug6");
 
         Ok((
             XdpTcpStreamBorrow {
