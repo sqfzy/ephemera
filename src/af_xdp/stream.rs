@@ -99,7 +99,7 @@ impl<'r> XdpTcpStreamBorrow<'r> {
         );
 
         while reactor.sockets.get_mut::<TcpSocket>(handle).state() == State::SynSent {
-            reactor.poll(None)?;
+            reactor.poll3(None)?;
         }
 
         println!("debug4");
@@ -120,7 +120,7 @@ impl<'r> XdpTcpStreamBorrow<'r> {
                 .state();
             state != State::Closed && state != State::TimeWait
         } {
-            self.reactor.poll(None)?;
+            self.reactor.poll3(None)?;
         }
 
         println!("debug8");
@@ -144,7 +144,7 @@ impl Read for XdpTcpStreamBorrow<'_> {
                 return Ok(0);
             }
 
-            self.reactor.poll(None)?;
+            self.reactor.poll3(None)?;
         }
 
         let n = self
@@ -154,7 +154,7 @@ impl Read for XdpTcpStreamBorrow<'_> {
             .recv_slice(buf)
             .map_err(io::Error::other);
 
-        self.reactor.poll(None)?;
+        self.reactor.poll3(None)?;
 
         n
     }
@@ -175,7 +175,7 @@ impl Write for XdpTcpStreamBorrow<'_> {
                 return Ok(0);
             }
 
-            self.reactor.poll(None)?;
+            self.reactor.poll3(None)?;
         }
 
         let n = self
@@ -185,7 +185,7 @@ impl Write for XdpTcpStreamBorrow<'_> {
             .send_slice(buf)
             .map_err(io::Error::other);
 
-        self.reactor.poll(None)?;
+        self.reactor.poll3(None)?;
 
         n
     }

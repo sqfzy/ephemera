@@ -56,7 +56,7 @@ impl XdpTcpListener {
             let socket = reactor.sockets.get_mut::<TcpSocket>(self.handle).state();
             socket == State::Listen || socket == State::SynReceived
         } {
-            reactor.poll(None)?;
+            reactor.poll3(None)?;
         }
 
         let socket = reactor.sockets.get_mut::<TcpSocket>(self.handle);

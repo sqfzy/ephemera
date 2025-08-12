@@ -19,13 +19,13 @@ use xsk_rs::{
 };
 
 #[derive(Debug)]
-pub struct XdpDevice<const FRAME_COUNT: usize = 1024> {
+pub struct XdpDevice {
     rx_q: RxQueue,
-    rx_fds: [FrameDesc; FRAME_COUNT],
+    rx_fds: Vec<FrameDesc>,
     rx_fds_can_read: Range<usize>,
 
     tx_q: TxQueue,
-    tx_fds: [FrameDesc; FRAME_COUNT],
+    tx_fds: Vec<FrameDesc>,
     tx_fds_can_send: Range<usize>,
 
     // 在接收数据前，需要向内核produce fd
@@ -37,20 +37,44 @@ pub struct XdpDevice<const FRAME_COUNT: usize = 1024> {
     fd: RawFd,
 }
 
-impl<const FRAME_COUNT: usize> XdpDevice<FRAME_COUNT> {
+impl XdpDevice {
+    /// Create a new XDP reactor for the given interface name.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let device = XdpDevice::new("interface_name_foo").unwrap();
+    /// let mac = "00:11:22:33:44:55".parse::<smoltcp::wire::EthernetAddress>().unwrap();
+    /// let reactor = XdpReactor::new(device, mac);
+    ///
+    ///
+    /// // Usually, you want to update the iface.
+    /// reactor.iface.update_ip_addrs(|ip_addrs| {
+    ///     ip_addrs
+    ///         .push(IpCidr::new(
+    ///             INTERFACE_IP1.parse::<Ipv4Addr>().unwrap().into(),
+    ///             24,
+    ///         ))
+    ///         .unwrap();
+    /// });
+    /// ```
     pub fn new(if_name: &str) -> Result<Self> {
-        let if_name_parsed = if_name.parse().unwrap();
+        let if_name_parsed = if_name.parse()?;
+        let frame_count = 1024_u32;
 
-        let frame_count =
-            NonZeroU32::new(FRAME_COUNT as u32).wrap_err("FRAME_COUNT must be non-zero")?;
         // PERF: huge page
-        let (umem, descs) = Umem::new(UmemConfig::default(), frame_count, false)?;
+        let (umem, descs) = Umem::new(
+            UmemConfig::default(),
+            NonZeroU32::new(frame_count).wrap_err("FRAME_COUNT must be non-zero")?,
+            false,
+        )?;
 
         // PERF:
         let socket_conf = SocketConfig::builder()
             .xdp_flags(XdpFlags::XDP_FLAGS_SKB_MODE)
             .build();
 
+        // TODO: 使用相同的if_name创建多个XskSocket是不安全的，需要封装来避免
         let (tx_q, rx_q, fq_and_cq) =
             unsafe { XskSocket::new(socket_conf, &umem, &if_name_parsed, 0) }?;
 
@@ -62,11 +86,11 @@ impl<const FRAME_COUNT: usize> XdpDevice<FRAME_COUNT> {
         Ok(Self {
             fd: tx_q.fd().as_raw_fd(),
             rx_q,
-            rx_fds: [FrameDesc::default(); FRAME_COUNT],
+            rx_fds: vec![FrameDesc::default(); frame_count as usize],
             rx_fds_can_read: 0..0,
             tx_q,
-            tx_fds: [FrameDesc::default(); FRAME_COUNT],
-            tx_fds_can_send: 0..FRAME_COUNT,
+            tx_fds: vec![FrameDesc::default(); frame_count as usize],
+            tx_fds_can_send: 0..frame_count as usize,
             fq,
             cq,
             umem,
@@ -82,14 +106,14 @@ impl<const FRAME_COUNT: usize> XdpDevice<FRAME_COUNT> {
         // 已有数据: fd1, fd2, fd3
         // 用户已用：fd1
         //
-        // 我们要记录fd2,fd3，让用户可以继续读取数据。当fd1,fd2,fd3都已被
+        // 我们要记录fd2,fd3，它们可供用户读取数据。当fd1,fd2,fd3都已被
         // 用户使用，则重新向内核提供，让内核可以继续消费它们。
         //
         // 我们关心哪些fd是用户能读的，并希望用户能尽快读取。
 
         // 用户用完了所有已读到数据的fd
         if self.rx_fds_can_read.start == self.rx_fds_can_read.end {
-            // 向内核提供这些fd，让内核会消费它们来读数据
+            // 向内核提供这些fd，内核会消费它们来读数据
             unsafe { self.fq.produce(&self.rx_fds[..self.rx_fds_can_read.end]) };
 
             // 消费内核提供的fd个数，证明这些fd已经读到了数据
@@ -147,13 +171,13 @@ impl<const FRAME_COUNT: usize> XdpDevice<FRAME_COUNT> {
     }
 }
 
-impl<const FRAME_COUNT: usize> AsRawFd for XdpDevice<FRAME_COUNT> {
+impl AsRawFd for XdpDevice {
     fn as_raw_fd(&self) -> RawFd {
         self.fd
     }
 }
 
-impl<const FRAME_COUNT: usize> Device for XdpDevice<FRAME_COUNT> {
+impl Device for XdpDevice {
     type RxToken<'token>
         = XskRxToken<'token>
     where
@@ -192,8 +216,8 @@ impl<const FRAME_COUNT: usize> Device for XdpDevice<FRAME_COUNT> {
         let mut caps = DeviceCapabilities::default();
         caps.max_transmission_unit = 1500;
         caps.medium = Medium::Ethernet;
-        caps.checksum.ipv4 = Checksum::Tx;
-        caps.checksum.tcp = Checksum::Tx;
+        // caps.checksum.ipv4 = Checksum::Tx;
+        // caps.checksum.tcp = Checksum::Tx;
         caps
     }
 }
@@ -245,15 +269,101 @@ impl<'a> TxToken for XskTxToken<'a> {
         // smoltcp requires the buffer length must be `len`
         cursor.set_pos(len);
 
+        let result = f(data_mut.contents_mut());
+
         trace!(
             "xdp send: {:?}",
             String::from_utf8_lossy(data_mut.contents())
         );
 
-        let result = f(data_mut.contents_mut());
-
         unsafe { self.tx_q.produce_one(&self.fd) };
 
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::af_xdp::device::XdpDevice;
+    use crate::test_utils::*;
+    use smoltcp::{
+        phy::{Device, RxToken, TxToken},
+        time::Instant,
+        wire::{EthernetFrame, EthernetProtocol},
+    };
+
+    #[test]
+    fn test_device_send_and_recv() {
+        setup();
+
+        let mut device1 = XdpDevice::new(INTERFACE_NAME1).unwrap();
+        let mut device2 = XdpDevice::new(INTERFACE_NAME2).unwrap();
+
+        let mac1 = INTERFACE_MAC1
+            .parse::<smoltcp::wire::EthernetAddress>()
+            .unwrap();
+        let mac2 = INTERFACE_MAC2
+            .parse::<smoltcp::wire::EthernetAddress>()
+            .unwrap();
+
+        // --- device1 发送消息 ---
+        {
+            let tx_token = device1.transmit(Instant::now()).unwrap();
+            let msg = b"Hello XDP!";
+            let frame_len = EthernetFrame::<&[u8]>::header_len() + msg.len();
+
+            tx_token.consume(frame_len, |mut frame_buf| {
+                // 在缓冲区上构建一个以太网帧
+                let mut frame = EthernetFrame::new_unchecked(&mut frame_buf);
+                frame.set_dst_addr(mac2);
+                frame.set_src_addr(mac1);
+                // 指定上层协议
+                frame.set_ethertype(EthernetProtocol::Ipv4);
+                // 将消息内容复制到帧的负载部分
+                frame.payload_mut().copy_from_slice(msg);
+            });
+
+            // 唤醒内核处理发送队列
+            device1.wakeup_kernel().unwrap();
+        }
+
+        // --- device2 接收并回复消息 ---
+        {
+            let (rx_token, tx_token) = device2.receive(Instant::now()).unwrap();
+            // 1. 接收和验证
+            rx_token.consume(|frame_buf| {
+                let frame = EthernetFrame::new_checked(frame_buf).unwrap();
+                // 验证MAC地址和负载内容
+                assert_eq!(frame.src_addr(), mac1);
+                assert_eq!(frame.dst_addr(), mac2);
+                assert_eq!(frame.payload(), b"Hello XDP!");
+            });
+
+            // 2. 准备并发送回复
+            let reply_msg = b"Hi!";
+            let reply_frame_len = EthernetFrame::<&[u8]>::header_len() + reply_msg.len();
+
+            tx_token.consume(reply_frame_len, |mut frame_buf| {
+                let mut frame = EthernetFrame::new_unchecked(&mut frame_buf);
+                frame.set_src_addr(mac2);
+                frame.set_dst_addr(mac1);
+                frame.set_ethertype(EthernetProtocol::Ipv4);
+                frame.payload_mut().copy_from_slice(reply_msg);
+            });
+
+            // 唤醒内核处理发送队列
+            device2.wakeup_kernel().unwrap();
+        }
+
+        // --- device1 接收回复 ---
+        {
+            let (rx_token, _) = device1.receive(Instant::now()).unwrap();
+            rx_token.consume(|frame_buf| {
+                let frame = EthernetFrame::new_checked(frame_buf).unwrap();
+                assert_eq!(frame.src_addr(), mac2);
+                assert_eq!(frame.dst_addr(), mac1);
+                assert_eq!(frame.payload(), b"Hi!");
+            });
+        }
     }
 }
