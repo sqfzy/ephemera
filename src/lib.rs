@@ -2,12 +2,16 @@
 #![feature(gen_blocks)]
 #![feature(async_fn_traits)]
 
-pub mod client;
+pub mod af_xdp;
+pub mod config;
 pub mod data;
 pub mod order;
-pub mod config;
-pub mod af_xdp;
-pub mod stream;
+pub mod source;
+mod bpf;
+// pub mod stream;
 mod test_utils;
 
-pub type Timestamp = u128;
+pub type Timestamp = u64;
+pub type Symbol = bytestring::ByteString;
+
+// TODO: 也许可以有raw feature，让用户可以拿到raw api

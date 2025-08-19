@@ -9,8 +9,8 @@ if (ip link show test_iface1 | complete | get exit_code) != 0 and (ip link show 
     sudo ip link set test_iface2 up
 
     # Assign IP addresses
-    sudo ip addr add 192.168.10.1/24 dev test_iface1
-    sudo ip addr add 192.168.10.2/24 dev test_iface2
+    sudo ip addr add 192.168.2.9/24 dev test_iface1
+    sudo ip addr add 192.168.2.10/24 dev test_iface2
 
     sudo ip link set dev test_iface1 address 2a:2b:72:fb:e8:cc 
     sudo ip link set dev test_iface2 address ea:d8:f6:0e:76:01

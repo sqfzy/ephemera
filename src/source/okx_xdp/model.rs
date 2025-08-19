@@ -8,14 +8,13 @@ use ws_tool::{
 
 use crate::{
     af_xdp::stream::XdpTcpStream,
-    client::{
+    source::DataSource,
+    source::{
         RawData,
-        okx::model::{OkxWsDataResponse, OkxWsRequest, OkxWsResponse},
+        okx::{OkxWsDataResponse, OkxWsRequest, OkxWsResponse},
     },
-    stream::IntoDataStream,
 };
 
-#[derive(Default)]
 pub struct XdpOkxWsRequest<D>(pub OkxWsRequest<D>);
 
 impl<D> Deref for XdpOkxWsRequest<D> {
@@ -32,7 +31,7 @@ impl<D> DerefMut for XdpOkxWsRequest<D> {
     }
 }
 
-impl<D> IntoDataStream for XdpOkxWsRequest<D>
+impl<D> DataSource for XdpOkxWsRequest<D>
 where
     D: RawData<Error = eyre::Error> + DeserializeOwned + Send,
     D::Data: Send + 'static,
@@ -40,10 +39,10 @@ where
     type Error = eyre::Error;
     type Stream = Box<dyn Iterator<Item = Result<D::Data, Self::Error>>>;
 
-    async fn into_stream(self) -> Result<Self::Stream, Self::Error> {
+    async fn data_stream(self) -> Result<Self::Stream, Self::Error> {
         let uri = self.end_point.parse::<http::Uri>()?;
         let host = uri.host().wrap_err("Invalid URI: missing host")?;
-        // TODO: 
+        // TODO:
         // let host = "104.18.43.174";
         let port = uri.port_u16().wrap_err("Invalid URI: missing port")?;
 

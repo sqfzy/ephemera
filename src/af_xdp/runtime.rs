@@ -17,7 +17,6 @@ use std::{
     task::{Context, Poll},
 };
 
-
 /// ```
 /// runtime.block_on(|reactor| async move {
 ///     r.spawn(|reactor| async {
@@ -37,7 +36,7 @@ pub struct Runtime {
 impl Runtime {
     pub fn new(device: XdpDevice, mac_addr: impl Into<HardwareAddress>) -> Self {
         Self {
-            reactor: XdpReactor::new(device, mac_addr),
+            reactor: XdpReactor::new().unwrap(),
             tasks: vec![],
         }
     }

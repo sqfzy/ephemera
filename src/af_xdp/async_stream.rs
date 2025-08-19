@@ -43,12 +43,14 @@ impl XdpTcpStream {
             handle
         };
 
+        // FIX:
         loop {
             std::thread::sleep(std::time::Duration::from_secs(1));
             let mut reactor = global_reactor();
-            reactor.poll();
+            reactor.poll_and_wakeup().unwrap();
             let socket = reactor.sockets.get_mut::<TcpSocket>(handle);
 
+            println!("debug0: state={:?}", socket.state());
             match socket.state() {
                 TcpState::Established => break,
                 TcpState::SynSent => {
@@ -128,8 +130,7 @@ impl AsyncWrite for XdpTcpStream {
         if socket.can_send() {
             let n = socket.send_slice(buf).map_err(io::Error::other)?;
 
-            reactor.poll();
-            reactor.device.wakeup_kernel()?;
+            reactor.poll_and_wakeup()?;
             return Poll::Ready(Ok(n));
         }
 
@@ -142,8 +143,7 @@ impl AsyncWrite for XdpTcpStream {
         cx: &mut std::task::Context<'_>,
     ) -> Poll<io::Result<()>> {
         let mut reactor = global_reactor();
-        reactor.poll();
-        reactor.device.wakeup_kernel()?;
+        reactor.poll_and_wakeup()?;
 
         let socket = reactor.sockets.get_mut::<TcpSocket>(self.handle);
         if socket.send_queue() == 0 {
@@ -158,8 +158,7 @@ impl AsyncWrite for XdpTcpStream {
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Result<(), io::Error>> {
         let mut reactor = global_reactor();
-        reactor.poll();
-        reactor.device.wakeup_kernel()?;
+        reactor.poll_and_wakeup()?;
 
         let socket = reactor.sockets.get_mut::<TcpSocket>(self.handle);
 
@@ -176,24 +175,25 @@ impl AsyncWrite for XdpTcpStream {
 }
 
 #[cfg(test)]
+#[serial_test::serial]
 mod tests {
-    use std::net::TcpListener;
-
     use crate::af_xdp::async_listener::XdpTcpListener;
     use crate::af_xdp::async_stream::XdpTcpStream;
     use crate::af_xdp::reactor::global_reactor;
     use crate::test_utils::*;
+    use tokio::net::{TcpListener, TcpStream, lookup_host};
 
     #[tokio::test]
     async fn stream_connect() {
         setup();
 
-        let mut listener = TcpListener::bind(format!("192.168.10.2:12345")).unwrap();
+        // let listener = TcpListener::bind("192.168.2.8:12345").await.unwrap();
+        //
+        // tokio::spawn(async move {
+        //     listener.accept().await.unwrap();
+        // });
 
-        let handle = std::thread::spawn(move || listener.accept().unwrap());
-
-        let _ = XdpTcpStream::connect(format!("192.168.10.2:12345"))
-            .await
-            .unwrap();
+        let _ = XdpTcpStream::connect("180.101.51.73:443").await.unwrap();
+        // let _ = XdpTcpStream::connect("192.168.2.8:12345").await.unwrap();
     }
 }

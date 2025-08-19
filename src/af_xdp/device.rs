@@ -6,17 +6,21 @@ use smoltcp::{
 use std::{
     fmt::Debug,
     io,
+    mem::MaybeUninit,
+    net::Ipv4Addr,
     num::NonZeroU32,
     ops::Range,
     os::fd::{AsRawFd, RawFd},
 };
-use tracing::trace;
+use tracing::{debug, trace};
 use xsk_rs::{
     CompQueue, FillQueue, FrameDesc,
-    config::{SocketConfig, UmemConfig, XdpFlags},
+    config::{LibxdpFlags, SocketConfig, UmemConfig, XdpFlags},
     socket::{RxQueue, Socket as XskSocket, TxQueue},
     umem::Umem,
 };
+
+use crate::bpf::xdp_ip_filter::XdpIpFilter;
 
 #[derive(Debug)]
 pub struct XdpDevice {
@@ -52,13 +56,21 @@ impl XdpDevice {
     /// reactor.iface.update_ip_addrs(|ip_addrs| {
     ///     ip_addrs
     ///         .push(IpCidr::new(
-    ///             INTERFACE_IP1.parse::<Ipv4Addr>().unwrap().into(),
+    ///             your_ip_addr.parse::<Ipv4Addr>().unwrap().into(),
     ///             24,
     ///         ))
     ///         .unwrap();
     /// });
+    /// reactor
+    ///     .iface
+    ///     .routes_mut()
+    ///     .add_default_ipv4_route(your_gateway_ip)
+    ///     .expect("Failed to add default route");
     /// ```
     pub fn new(if_name: &str) -> Result<Self> {
+        // INFO: 目前XDP Device 只实现了单个网卡队列的处理逻辑，并指定处理的队列ID为0
+        const QUEUE_ID: u32 = 0;
+
         let if_name_parsed = if_name.parse()?;
         let frame_count = 1024_u32;
 
@@ -70,13 +82,13 @@ impl XdpDevice {
         )?;
 
         // PERF:
-        let socket_conf = SocketConfig::builder()
-            .xdp_flags(XdpFlags::XDP_FLAGS_SKB_MODE)
+        let sk_conf = SocketConfig::builder()
+            .libxdp_flags(LibxdpFlags::XSK_LIBXDP_FLAGS_INHIBIT_PROG_LOAD) // 不要使用默认的XDP程序
             .build();
 
         // TODO: 使用相同的if_name创建多个XskSocket是不安全的，需要封装来避免
         let (tx_q, rx_q, fq_and_cq) =
-            unsafe { XskSocket::new(socket_conf, &umem, &if_name_parsed, 0) }?;
+            unsafe { XskSocket::new(sk_conf, &umem, &if_name_parsed, QUEUE_ID) }?;
 
         let (mut fq, cq) = fq_and_cq.expect("UMEM is not shared, fq and cq should exist");
 
@@ -235,7 +247,7 @@ impl<'a> RxToken for XskRxToken<'a> {
     {
         let data = unsafe { self.umem.data(&self.fd) };
 
-        trace!("xdp recv: {:?}", String::from_utf8_lossy(data.contents()));
+        trace!("xdp recv: {:?}", data.contents());
 
         f(data.contents())
     }
@@ -271,10 +283,7 @@ impl<'a> TxToken for XskTxToken<'a> {
 
         let result = f(data_mut.contents_mut());
 
-        trace!(
-            "xdp send: {:?}",
-            String::from_utf8_lossy(data_mut.contents())
-        );
+        trace!("xdp send: {:?}", data_mut.contents());
 
         unsafe { self.tx_q.produce_one(&self.fd) };
 
@@ -283,6 +292,7 @@ impl<'a> TxToken for XskTxToken<'a> {
 }
 
 #[cfg(test)]
+#[serial_test::serial]
 mod tests {
     use crate::af_xdp::device::XdpDevice;
     use crate::test_utils::*;
