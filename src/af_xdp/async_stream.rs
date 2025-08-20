@@ -38,6 +38,7 @@ impl XdpTcpStream {
 
             debug_assert_eq!(socket.state(), TcpState::SynSent);
 
+            // TODO: 阻塞，when full
             let handle = reactor.sockets.add(socket);
             reactor.poll();
             handle
@@ -194,6 +195,6 @@ mod tests {
         // });
 
         let _ = XdpTcpStream::connect("180.101.51.73:443").await.unwrap();
-        // let _ = XdpTcpStream::connect("192.168.2.8:12345").await.unwrap();
+        // let _ = XdpTcpStream::connect("127.0.0.1:12345").await.unwrap();
     }
 }

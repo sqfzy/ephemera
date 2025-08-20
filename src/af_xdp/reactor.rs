@@ -1,6 +1,6 @@
 use crate::{af_xdp::device::XdpDevice, bpf::xdp_ip_filter::XdpIpFilter, config::EphemaraConfig};
 use libbpf_rs::{
-    MapCore, ObjectBuilder,
+    MapCore, MapFlags, ObjectBuilder,
     skel::{OpenSkel, SkelBuilder},
 };
 use smoltcp::{
@@ -12,6 +12,7 @@ use std::{
     io,
     mem::MaybeUninit,
     os::fd::AsRawFd,
+    process::Command,
     sync::{LazyLock, Mutex, MutexGuard},
 };
 use xsk_rs::config::{LibxdpFlags, SocketConfig, XdpFlags};
@@ -44,6 +45,7 @@ impl XdpReactor {
             xdp_mac,
             xdp_ip,
             xdp_skb_mod,
+            xdp_allowed_ips,
             gateway_ip,
             ..
         } = EphemaraConfig::load()?;
@@ -52,6 +54,7 @@ impl XdpReactor {
             .parse::<EthernetAddress>()
             .map_err(|_| eyre::eyre!("Failed to parse MAC address: {xdp_mac}"))?;
 
+        // setup BPF
         let if_index = nix::net::if_::if_nametoindex(xdp_if_name.as_str())? as i32;
         let flags = if xdp_skb_mod {
             libbpf_rs::XdpFlags::SKB_MODE
@@ -60,8 +63,10 @@ impl XdpReactor {
         };
         let bpf = XdpIpFilter::new(if_index, flags)?;
 
+        // setup device
         let mut device = XdpDevice::new(&xdp_if_name)?;
 
+        // setup interface
         let mut iface = Interface::new(
             smoltcp::iface::Config::new(xdp_mac.into()),
             &mut device,
@@ -70,12 +75,20 @@ impl XdpReactor {
         iface.update_ip_addrs(|ip_addrs| {
             ip_addrs
                 .push(IpCidr::new(IpAddress::from(xdp_ip), 24))
-                .unwrap();
+                .expect("Address is full.");
         });
-        iface
-            .routes_mut()
-            .add_default_ipv4_route(gateway_ip)
-            .expect("Failed to add default route");
+        iface.routes_mut().add_default_ipv4_route(gateway_ip)?;
+
+        println!("debug0: fd={}", device.as_raw_fd() as i32);
+        let xsk_fd=  device.as_raw_fd();
+        bpf.skel.maps.xsks_map.update(
+            &0_i32.to_le_bytes(), // 硬编码为0，即队列0
+            &xsk_fd.to_le_bytes(),
+            MapFlags::ANY,
+        )?;
+        for ip in xdp_allowed_ips {
+            bpf.add_allowed_ip(ip)?;
+        }
 
         Ok(Self {
             iface,

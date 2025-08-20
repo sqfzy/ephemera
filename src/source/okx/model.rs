@@ -8,7 +8,7 @@ use crate::{
     order::Side,
 };
 use bytestring::ByteString;
-use eyre::{Context, Result};
+use eyre::Result;
 use itertools::Itertools;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -32,14 +32,14 @@ pub(super) struct HttpCandleDataRequest {
     pub(super) limit: Option<usize>,
 }
 
-#[derive(Debug, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub(super) struct HttpResponse<RD> {
     pub(super) code: ByteString,
     pub(super) msg: ByteString,
     pub(super) data: Vec<RD>,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub(super) struct WsRequest {
     /// 操作
     /// subscribe
@@ -55,7 +55,7 @@ pub(super) struct WsRequest {
     pub(super) id: Option<ByteString>,
 }
 
-#[derive(Debug, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct WsResponse {
     /// 消息的唯一标识。
@@ -77,7 +77,7 @@ pub(super) struct WsResponse {
     pub(super) conn_id: ByteString,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct WsDataResponse<RD> {
     pub(super) arg: Arg,
@@ -149,7 +149,7 @@ impl TryFrom<WsDataResponse<OkxBookData>> for Vec<BookData> {
 }
 
 /// 订阅的频道
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Arg {
     /// 产品ID，例如 "BTC-USDT"。
@@ -187,7 +187,7 @@ pub enum WsOperation {
     Unsubscribe,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct RawTradeData {
     pub(super) inst_id: ByteString,
@@ -207,7 +207,7 @@ pub(super) struct RawTradeData {
 /// 6.交易量（以计价货币为单位）
 /// 7.交易量（以计价货币为单位，适用于合约）
 /// 8.K线状态 (1: a confirmed candle)
-#[derive(Debug, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub(super) struct RawCandleData(
     pub(super) ByteString,
     pub(super) ByteString,
@@ -226,7 +226,7 @@ pub(super) struct RawCandleData(
 /// 3. 订单数量
 pub(super) type Level = (ByteString, ByteString, ByteString, ByteString);
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct OkxBookData {
     pub(super) asks: Vec<Level>,

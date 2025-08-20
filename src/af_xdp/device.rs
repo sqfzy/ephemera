@@ -83,10 +83,12 @@ impl XdpDevice {
 
         // PERF:
         let sk_conf = SocketConfig::builder()
+            // .xdp_flags(XdpFlags::XDP_FLAGS_SKB_MODE) // 使用 SKB 模式
             .libxdp_flags(LibxdpFlags::XSK_LIBXDP_FLAGS_INHIBIT_PROG_LOAD) // 不要使用默认的XDP程序
             .build();
 
         // TODO: 使用相同的if_name创建多个XskSocket是不安全的，需要封装来避免
+        // FIX: xsks_map key=0时，value!=if_index。需修正
         let (tx_q, rx_q, fq_and_cq) =
             unsafe { XskSocket::new(sk_conf, &umem, &if_name_parsed, QUEUE_ID) }?;
 
@@ -347,6 +349,109 @@ mod tests {
                 assert_eq!(frame.src_addr(), mac1);
                 assert_eq!(frame.dst_addr(), mac2);
                 assert_eq!(frame.payload(), b"Hello XDP!");
+            });
+
+            // 2. 准备并发送回复
+            let reply_msg = b"Hi!";
+            let reply_frame_len = EthernetFrame::<&[u8]>::header_len() + reply_msg.len();
+
+            tx_token.consume(reply_frame_len, |mut frame_buf| {
+                let mut frame = EthernetFrame::new_unchecked(&mut frame_buf);
+                frame.set_src_addr(mac2);
+                frame.set_dst_addr(mac1);
+                frame.set_ethertype(EthernetProtocol::Ipv4);
+                frame.payload_mut().copy_from_slice(reply_msg);
+            });
+
+            // 唤醒内核处理发送队列
+            device2.wakeup_kernel().unwrap();
+        }
+
+        // --- device1 接收回复 ---
+        {
+            let (rx_token, _) = device1.receive(Instant::now()).unwrap();
+            rx_token.consume(|frame_buf| {
+                let frame = EthernetFrame::new_checked(frame_buf).unwrap();
+                assert_eq!(frame.src_addr(), mac2);
+                assert_eq!(frame.dst_addr(), mac1);
+                assert_eq!(frame.payload(), b"Hi!");
+            });
+        }
+    }
+
+    #[test]
+    fn test_device_send_and_recv2() {
+        setup();
+
+        let mut device1 = XdpDevice::new(INTERFACE_NAME1).unwrap();
+        let mut device2 = XdpDevice::new(INTERFACE_NAME2).unwrap();
+
+        let mac1 = INTERFACE_MAC1
+            .parse::<smoltcp::wire::EthernetAddress>()
+            .unwrap();
+        let mac2 = INTERFACE_MAC2
+            .parse::<smoltcp::wire::EthernetAddress>()
+            .unwrap();
+
+        // --- device1 发送消息 ---
+        {
+            let tx_token = device1.transmit(Instant::now()).unwrap();
+            let msg = b"Hello XDP!";
+            let frame_len = EthernetFrame::<&[u8]>::header_len() + msg.len();
+
+            tx_token.consume(frame_len, |mut frame_buf| {
+                // 在缓冲区上构建一个以太网帧
+                let mut frame = EthernetFrame::new_unchecked(&mut frame_buf);
+                frame.set_dst_addr(mac2);
+                frame.set_src_addr(mac1);
+                // 指定上层协议
+                frame.set_ethertype(EthernetProtocol::Ipv4);
+                // 将消息内容复制到帧的负载部分
+                frame.payload_mut().copy_from_slice(msg);
+            });
+
+            // 唤醒内核处理发送队列
+            device1.wakeup_kernel().unwrap();
+        }
+
+        {
+            let tx_token = device1.transmit(Instant::now()).unwrap();
+            let msg = b"Hello XDP2!";
+            let frame_len = EthernetFrame::<&[u8]>::header_len() + msg.len();
+
+            tx_token.consume(frame_len, |mut frame_buf| {
+                // 在缓冲区上构建一个以太网帧
+                let mut frame = EthernetFrame::new_unchecked(&mut frame_buf);
+                frame.set_dst_addr(mac2);
+                frame.set_src_addr(mac1);
+                // 指定上层协议
+                frame.set_ethertype(EthernetProtocol::Ipv4);
+                // 将消息内容复制到帧的负载部分
+                frame.payload_mut().copy_from_slice(msg);
+            });
+
+            // 唤醒内核处理发送队列
+            device1.wakeup_kernel().unwrap();
+        }
+
+        // --- device2 接收并回复消息 ---
+        {
+            let (rx_token, tx_token) = device2.receive(Instant::now()).unwrap();
+            // 1. 接收和验证
+            rx_token.consume(|frame_buf| {
+                let frame = EthernetFrame::new_checked(frame_buf).unwrap();
+                // 验证MAC地址和负载内容
+                assert_eq!(frame.src_addr(), mac1);
+                assert_eq!(frame.dst_addr(), mac2);
+                assert_eq!(frame.payload(), b"Hello XDP!");
+            });
+            let (rx_token, tx_token) = device2.receive(Instant::now()).unwrap();
+            rx_token.consume(|frame_buf| {
+                let frame = EthernetFrame::new_checked(frame_buf).unwrap();
+                // 验证MAC地址和负载内容
+                assert_eq!(frame.src_addr(), mac1);
+                assert_eq!(frame.dst_addr(), mac2);
+                assert_eq!(frame.payload(), b"Hello XDP2!");
             });
 
             // 2. 准备并发送回复
