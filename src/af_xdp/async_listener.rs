@@ -1,6 +1,9 @@
-use crate::af_xdp::{
-    async_stream::XdpTcpStream,
-    reactor::{XdpReactor, global_reactor, with_reactor},
+use crate::{
+    af_xdp::{
+        async_stream::XdpTcpStream,
+        reactor::{XdpReactor, global_reactor},
+    },
+    test_utils::setup,
 };
 use smoltcp::{
     iface::SocketHandle,
@@ -117,4 +120,22 @@ impl XdpTcpListener {
             SocketAddr::from((remote_addr.addr, remote_addr.port)),
         ))
     }
+}
+
+#[tokio::test]
+async fn test_foo() {
+    setup();
+    let mut listener = XdpTcpListener::bind("192.168.2.8:12345").unwrap();
+    println!("debug1");
+
+    // tokio::spawn(async move {
+    println!("debug2");
+    listener.accept().await.unwrap();
+
+    println!("debug4");
+    // });
+
+    // tokio::net::TcpStream::connect("192.168.2.8:12345")
+    //     .await
+    //     .unwrap();
 }

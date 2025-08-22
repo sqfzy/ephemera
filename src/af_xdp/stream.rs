@@ -192,7 +192,8 @@ impl Write for XdpTcpStreamBorrow<'_> {
 
     fn flush(&mut self) -> io::Result<()> {
         // 唤醒内核，发送数据
-        self.reactor.device.wakeup_kernel()
+        self.reactor.device.flush()?;
+        Ok(())
     }
 }
 

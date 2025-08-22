@@ -2,7 +2,10 @@ use crate::af_xdp::reactor::global_reactor;
 use portpicker::pick_unused_port;
 use smoltcp::{
     iface::SocketHandle,
+    phy::{Device, RxToken},
     socket::tcp::{Socket as TcpSocket, SocketBuffer, State as TcpState},
+    time::Instant,
+    wire::EthernetFrame,
 };
 use std::{future::poll_fn, io, net::ToSocketAddrs, task::Poll};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -45,10 +48,28 @@ impl XdpTcpStream {
         };
 
         // FIX:
+        let mut reactor = global_reactor();
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        reactor.poll_and_flush().unwrap();
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        reactor.poll_and_flush().unwrap();
         loop {
             std::thread::sleep(std::time::Duration::from_secs(1));
-            let mut reactor = global_reactor();
-            reactor.poll_and_wakeup().unwrap();
+            // println!("debug3");
+            // if let Some((rx_token, _)) = reactor.device.receive(Instant::now()) {
+            //     rx_token.consume(|frame_buf| {
+            //         let frame = EthernetFrame::new_checked(frame_buf).unwrap();
+            //         println!(
+            //             "debug0: src={:?}, dst={:?}, ethertype={:?}, payload={:?}",
+            //             frame.src_addr(),
+            //             frame.dst_addr(),
+            //             frame.ethertype(),
+            //             frame.payload(),
+            //         );
+            //     });
+            // }
+
+            reactor.poll_and_flush().unwrap();
             let socket = reactor.sockets.get_mut::<TcpSocket>(handle);
 
             println!("debug0: state={:?}", socket.state());
@@ -131,7 +152,7 @@ impl AsyncWrite for XdpTcpStream {
         if socket.can_send() {
             let n = socket.send_slice(buf).map_err(io::Error::other)?;
 
-            reactor.poll_and_wakeup()?;
+            reactor.poll_and_flush()?;
             return Poll::Ready(Ok(n));
         }
 
@@ -144,7 +165,7 @@ impl AsyncWrite for XdpTcpStream {
         cx: &mut std::task::Context<'_>,
     ) -> Poll<io::Result<()>> {
         let mut reactor = global_reactor();
-        reactor.poll_and_wakeup()?;
+        reactor.poll_and_flush()?;
 
         let socket = reactor.sockets.get_mut::<TcpSocket>(self.handle);
         if socket.send_queue() == 0 {
@@ -159,7 +180,7 @@ impl AsyncWrite for XdpTcpStream {
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Result<(), io::Error>> {
         let mut reactor = global_reactor();
-        reactor.poll_and_wakeup()?;
+        reactor.poll_and_flush()?;
 
         let socket = reactor.sockets.get_mut::<TcpSocket>(self.handle);
 
@@ -178,23 +199,92 @@ impl AsyncWrite for XdpTcpStream {
 #[cfg(test)]
 #[serial_test::serial]
 mod tests {
-    use crate::af_xdp::async_listener::XdpTcpListener;
-    use crate::af_xdp::async_stream::XdpTcpStream;
-    use crate::af_xdp::reactor::global_reactor;
+    use super::*;
+    use crate::af_xdp::reactor::{XdpReactor, global_reactor};
     use crate::test_utils::*;
-    use tokio::net::{TcpListener, TcpStream, lookup_host};
+    use tokio::net::TcpListener;
 
     #[tokio::test]
     async fn stream_connect() {
         setup();
 
-        // let listener = TcpListener::bind("192.168.2.8:12345").await.unwrap();
-        //
-        // tokio::spawn(async move {
-        //     listener.accept().await.unwrap();
-        // });
+        let listener = TcpListener::bind("127.0.0.1:12345").await.unwrap();
 
-        let _ = XdpTcpStream::connect("180.101.51.73:443").await.unwrap();
+        tokio::spawn(async move {
+            listener.accept().await.unwrap();
+        });
+
+        // TcpStream::connect("127.0.0.1:12345").await.unwrap();
+        // let _ = XdpTcpStream::connect("180.101.49.44:443").await.unwrap();
         // let _ = XdpTcpStream::connect("127.0.0.1:12345").await.unwrap();
+
+        let addr = "127.0.0.1:12345";
+        let handle = {
+            // let mut socket = TcpSocket::new(
+            //     SocketBuffer::new(vec![0; 4096]),
+            //     SocketBuffer::new(vec![0; 4096]),
+            // );
+
+            let mut reactor = global_reactor();
+            let handle = reactor.add_tcp_socket();
+
+            let XdpReactor { iface, sockets, .. } = &mut *reactor;
+
+            let socket = sockets.get_mut::<TcpSocket>(handle);
+
+            let mut addrs = addr.to_socket_addrs().unwrap().peekable();
+            let local_port = pick_unused_port()
+                .ok_or_else(|| io::Error::other("Failed to pick an unused port for TCP connection"))
+                .unwrap();
+
+            while let Some(addr) = addrs.next() {
+                match socket.connect(iface.context(), addr, local_port) {
+                    Ok(_) => break,
+                    Err(_) if addrs.peek().is_some() => continue,
+                    // 最后的地址也连接失败
+                    e => e
+                        .map_err(|e| io::Error::other(format!("Failed to connect to {addr}: {e}")))
+                        .unwrap(),
+                }
+            }
+
+            debug_assert_eq!(socket.state(), TcpState::SynSent);
+
+            // TODO: 阻塞，when full
+            reactor.poll();
+            handle
+        };
+
+        let mut reactor = global_reactor();
+
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            // println!("debug3");
+            // if let Some((rx_token, _)) = reactor.device.receive(Instant::now()) {
+            //     rx_token.consume(|frame_buf| {
+            //         let frame = EthernetFrame::new_checked(frame_buf).unwrap();
+            //         println!(
+            //             "debug0: src={:?}, dst={:?}, ethertype={:?}, payload={:?}",
+            //             frame.src_addr(),
+            //             frame.dst_addr(),
+            //             frame.ethertype(),
+            //             frame.payload(),
+            //         );
+            //     });
+            // }
+
+            reactor.poll_and_flush().unwrap();
+            let socket = reactor.sockets.get_mut::<TcpSocket>(handle);
+
+            println!("debug0: state={:?}", socket.state());
+            match socket.state() {
+                TcpState::Established => break,
+                TcpState::SynSent => {
+                    // socket.register_send_waker(cx.waker());
+                    // Poll::Pending
+                }
+                _ => unreachable!(),
+            }
+        }
     }
 }

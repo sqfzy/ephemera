@@ -3,7 +3,7 @@ log_level = "trace"
 
 # --- XDP 配置 ---
 # 你的 XDP 程序将绑定到沙箱中的 veth_guest 接口
-xdp_if_name = "eth3"
+xdp_if_name = "eth1"
 
 # 替换成你上一步获取到的 veth_guest 的 MAC 地址
 xdp_mac = "a0:80:69:b8:94:67" 
@@ -11,7 +11,7 @@ xdp_mac = "a0:80:69:b8:94:67"
 # veth_guest 的 IP 地址
 xdp_ip = "192.168.2.8"
 
-xdp_allowed_ips = ["180.101.51.73", "127.0.0.1", "192.168.2.8"]
+xdp_allowed_ips = ["180.101.49.44", "127.0.0.1", "192.168.2.8"]
 
 xdp_skb_mod = true
 
