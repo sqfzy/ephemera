@@ -343,23 +343,17 @@ mod tests {
 
     #[test]
     fn test_real_reactor() {
-        let server_ip = "192.168.2.8";
+        setup();
+
+        let server_ip = "36.152.44.132";
         let client_ip = "192.168.2.8";
-        let server_port = 12345;
-
-        std::thread::spawn(move || {
-            let listener =
-                std::net::TcpListener::bind(format!("{server_ip}:{server_port}")).unwrap();
-
-            listener.accept().unwrap();
-        });
 
         let mut reactor = global_reactor();
 
         let handle = reactor.add_tcp_socket();
 
         let server_endpoint =
-            IpEndpoint::new(server_ip.parse::<Ipv4Addr>().unwrap().into(), server_port);
+            IpEndpoint::new(server_ip.parse::<Ipv4Addr>().unwrap().into(), 80);
         let local_endpoint = IpEndpoint::new(client_ip.parse::<Ipv4Addr>().unwrap().into(), 12346);
 
         {
@@ -384,6 +378,7 @@ mod tests {
         );
 
         for _ in 0..30 {
+            std::thread::sleep(std::time::Duration::from_secs(1));
             reactor.poll_and_flush().unwrap();
 
             if reactor.sockets.get_mut::<TcpSocket>(handle).state() == State::Established {
