@@ -39,7 +39,6 @@ where
             |err| itertools::Either::Right(iter::once(Err(err))),
             |vec| itertools::Either::Left(vec.into_iter().map(Ok)),
         );
-        // The iterator itself must be Send to be used across .await points in a multi-threaded context.
         futures::stream::iter(iterator)
     })
 }

@@ -1,4 +1,5 @@
 mod model;
+pub mod xdp;
 
 pub use model::WsOperation;
 
@@ -107,8 +108,6 @@ async fn okx_raw_data_stream<DR: DeserializeOwned + Send + 'static>(
         .await?;
 
     // Each channel subscription will get a response.
-    // TODO: Now, when one of the channel subscription fails, all subscriptions will fail.
-    // May be we could just go on without the failed channel? What's the behavior of OKX?
     for _ in 0..channel_count {
         // Expect a response like this:
         // {
@@ -274,16 +273,6 @@ pub enum OkxBookChannel {
 
     Ohter(String),
 }
-
-// #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::IntoStaticStr)]
-// pub enum OkxBookSnapshotDepth {
-//     #[strum(serialize = "bbo-tbt")]
-//     BookSnaphot1Depth10ms,
-//     #[strum(serialize = "books50-12-tbt")]
-//     BookSnaphot50Depth10ms,
-//     #[strum(serialize = "books-12-tbt")]
-//     BookSnapShot400,
-// }
 
 #[cfg(test)]
 mod tests {
