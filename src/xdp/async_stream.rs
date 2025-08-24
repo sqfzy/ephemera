@@ -26,6 +26,10 @@ impl XdpTcpStream {
             let mut reactor = global_reactor();
 
             while let Some(addr) = addrs.next() {
+                reactor.bpf.add_allowed_ip(addr.ip()).map_err(|e| {
+                    io::Error::other(format!("Failed to add {addr} to allowed IPs: {e}"))
+                })?;
+
                 match socket.connect(reactor.iface.context(), addr, local_port) {
                     Ok(_) => break,
                     Err(_) if addrs.peek().is_some() => continue,
@@ -35,8 +39,6 @@ impl XdpTcpStream {
                     })?,
                 }
             }
-
-            debug_assert_eq!(socket.state(), TcpState::SynSent);
 
             reactor.sockets.add(socket)
         };

@@ -4,8 +4,9 @@ pub(crate) mod xdp_ip_filter {
         MapCore,
         skel::{OpenSkel, SkelBuilder},
     };
+    use std::mem::MaybeUninit;
+    use std::net::IpAddr;
     use std::os::fd::AsFd;
-    use std::{mem::MaybeUninit, net::Ipv4Addr};
     use tracing::debug;
 
     include!(concat!(env!("OUT_DIR"), "/xdp_ip_filter.skel.rs"));
@@ -33,16 +34,31 @@ pub(crate) mod xdp_ip_filter {
             })
         }
 
-        pub(crate) fn add_allowed_ip(&self, ip_addr: Ipv4Addr) -> Result<(), libbpf_rs::Error> {
-            let key: [u8; 4] = u32::from(ip_addr).to_be_bytes();
-            let value: [u8; 1] = [1];
+        pub(crate) fn add_allowed_ip(&self, addr: IpAddr) -> Result<(), libbpf_rs::Error> {
+            match addr {
+                IpAddr::V4(addr) => {
+                    let key: [u8; 4] = addr.octets();
+                    let value: [u8; 1] = [1];
 
-            self.skel
-                .maps
-                .allowed_ips_map
-                .update(&key, &value, libbpf_rs::MapFlags::ANY)?;
+                    self.skel.maps.allowed_ips_map_v4.update(
+                        &key,
+                        &value,
+                        libbpf_rs::MapFlags::ANY,
+                    )?;
+                }
+                IpAddr::V6(addr) => {
+                    let key: [u8; 16] = addr.octets();
+                    let value: [u8; 1] = [1];
 
-            debug!("Added {ip_addr:?} to whitelist.");
+                    self.skel.maps.allowed_ips_map_v6.update(
+                        &key,
+                        &value,
+                        libbpf_rs::MapFlags::ANY,
+                    )?;
+                }
+            }
+
+            debug!("Added {addr:?} to whitelist.");
 
             Ok(())
         }

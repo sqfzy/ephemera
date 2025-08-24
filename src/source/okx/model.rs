@@ -1,7 +1,5 @@
 #![allow(dead_code)]
 
-// TODO: Borrowed serde
-
 use crate::{
     Timestamp,
     data::{BookData, TradeData},

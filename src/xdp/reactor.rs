@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::{config::EphemaraConfig, xdp::bpf::xdp_ip_filter::XdpIpFilter, xdp::device::XdpDevice};
 use libbpf_rs::{MapCore, MapFlags};
 use smoltcp::{
@@ -51,7 +53,7 @@ fn create_global_reactor() -> XdpReactor {
         xdp_mac,
         xdp_ip,
         xdp_skb_mod,
-        xdp_allowed_ips,
+        xdp_acceptable_ips: xdp_allowed_ips,
         gateway_ip,
         ..
     } = EphemaraConfig::load().unwrap();

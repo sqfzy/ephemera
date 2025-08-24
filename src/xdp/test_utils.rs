@@ -16,7 +16,7 @@ use smoltcp::{
 use std::{
     future::poll_fn,
     io,
-    net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs},
+    net::{IpAddr, SocketAddr, ToSocketAddrs},
     os::fd::AsRawFd,
     str::FromStr,
     sync::{Arc, Mutex, OnceLock},
@@ -72,9 +72,9 @@ pub(crate) fn create_reactor1() -> XdpReactor {
             MapFlags::ANY,
         )
         .unwrap();
-    bpf.add_allowed_ip(INTERFACE_IP1.parse::<Ipv4Addr>().unwrap())
+    bpf.add_allowed_ip(INTERFACE_IP1.parse::<IpAddr>().unwrap())
         .unwrap();
-    bpf.add_allowed_ip(INTERFACE_IP2.parse::<Ipv4Addr>().unwrap())
+    bpf.add_allowed_ip(INTERFACE_IP2.parse::<IpAddr>().unwrap())
         .unwrap();
 
     XdpReactor {
@@ -113,9 +113,9 @@ pub(crate) fn create_reactor2() -> XdpReactor {
             MapFlags::ANY,
         )
         .unwrap();
-    bpf.add_allowed_ip(INTERFACE_IP1.parse::<Ipv4Addr>().unwrap())
+    bpf.add_allowed_ip(INTERFACE_IP1.parse::<IpAddr>().unwrap())
         .unwrap();
-    bpf.add_allowed_ip(INTERFACE_IP2.parse::<Ipv4Addr>().unwrap())
+    bpf.add_allowed_ip(INTERFACE_IP2.parse::<IpAddr>().unwrap())
         .unwrap();
 
     XdpReactor {
@@ -142,7 +142,8 @@ pub(crate) fn bind_with_reactor(
 
     socket.listen(addr).map_err(io::Error::other)?;
 
-    let handle = reactor.lock().unwrap().sockets.add(socket);
+    let mut reactor = reactor.lock().unwrap();
+    let handle = reactor.sockets.add(socket);
 
     Ok(XdpTcpListener { handle })
 }
@@ -200,6 +201,10 @@ pub(crate) async fn connect_with_reactor(
         let mut reactor = reactor.lock().unwrap();
 
         while let Some(addr) = addrs.next() {
+            reactor.bpf.add_allowed_ip(addr.ip()).map_err(|e| {
+                io::Error::other(format!("Failed to add {addr} to allowed IPs: {e}"))
+            })?;
+
             match socket.connect(reactor.iface.context(), addr, local_port) {
                 Ok(_) => break,
                 Err(_) if addrs.peek().is_some() => continue,

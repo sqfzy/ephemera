@@ -9,3 +9,7 @@ bpf程序没问题，可以正常转发。但程序有时候能收到，有时�
 可以收到ARP包，但为什么不能收到TCP包？
 
 不要`sudo -E ~/.cargo/bin/cargo build`，否则link时会报错
+
+把xdp代码单独成库
+
+动态allow ip? 但listener无法在不allow remote ip的情况下取得allow remote ip

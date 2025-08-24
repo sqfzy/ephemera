@@ -11,7 +11,8 @@ xdp_mac = "a0:80:69:b8:94:67"
 # veth_guest 的 IP 地址
 xdp_ip = "192.168.1.2"
 
-xdp_allowed_ips = ["36.152.44.132", "180.101.49.44", "127.0.0.1", "192.168.2.8"]
+# 允许以下 src IP 连接到 XDP listener。
+xdp_acceptable_ips = []
 
 xdp_skb_mod = true
 
