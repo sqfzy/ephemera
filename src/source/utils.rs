@@ -1,5 +1,5 @@
 use futures::{Stream, StreamExt};
-use std::{future::Future, iter};
+use std::iter;
 
 pub fn transform_raw_stream<Raw, Target, E>(
     stream: impl Stream<Item = Result<Raw, E>> + Send + 'static,

@@ -1,7 +1,7 @@
 pub(crate) mod xdp_ip_filter {
-    use libbpf_rs::{Link, MapFlags, XdpFlags};
+    use libbpf_rs::XdpFlags;
     use libbpf_rs::{
-        MapCore, ObjectBuilder,
+        MapCore,
         skel::{OpenSkel, SkelBuilder},
     };
     use std::os::fd::AsFd;
@@ -23,7 +23,6 @@ pub(crate) mod xdp_ip_filter {
             let open_skel = skel_builder.open(open_object)?;
 
             let skel: XdpIpFilterSkel<'static> = open_skel.load()?;
-            // let link = skel.progs.xdp_ip_filter_func.attach()?;
 
             let xdp_attacher = libbpf_rs::Xdp::new(skel.progs.xdp_ip_filter_func.as_fd());
             xdp_attacher.attach(if_index, flags)?;

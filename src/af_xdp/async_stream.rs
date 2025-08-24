@@ -158,7 +158,7 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     use super::*;
-    use crate::test_utils::*;
+    use crate::af_xdp::test_utils::*;
     use std::sync::{Arc, Mutex};
 
     #[tokio::test]
@@ -228,7 +228,7 @@ mod tests {
             .await
             .unwrap();
 
-        stream.write_all(b"Hello".as_slice()).await.unwrap();
+        stream.write_all(msg).await.unwrap();
         stream.flush().await.unwrap();
 
         let mut buf = vec![0_u8; msg.len()];

@@ -1,6 +1,6 @@
 #[tokio::main]
 async fn main() {
-    let config = ephemera::config::EphemaraConfig::load().expect("Failed to load config");
+    // let config = ephemera::config::EphemaraConfig::load().expect("Failed to load config");
 
     // let req = OkxWsRequest::<OkxTradeData> {
     //     end_point: "wss://ws.okx.com:433/ws/v5/public".into(),

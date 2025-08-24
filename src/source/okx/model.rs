@@ -4,7 +4,7 @@
 
 use crate::{
     Timestamp,
-    data::{BookData, CandleData, TradeData},
+    data::{BookData, TradeData},
     order::Side,
 };
 use bytestring::ByteString;

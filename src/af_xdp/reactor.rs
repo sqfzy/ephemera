@@ -183,7 +183,7 @@ impl XdpReactor {
 #[serial_test::serial(xdp)]
 mod tests {
     use super::*;
-    use crate::test_utils::*;
+    use crate::af_xdp::test_utils::*;
     use smoltcp::{
         socket::tcp::{Socket as TcpSocket, State},
         wire::IpEndpoint,
