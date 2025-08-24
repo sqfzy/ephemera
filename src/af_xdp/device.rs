@@ -1,27 +1,21 @@
 use eyre::{ContextCompat, Result};
-use heapless::Deque;
 use smoltcp::{
-    phy::{Checksum, Device, DeviceCapabilities, Medium, RxToken, TxToken},
+    phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken},
     time::Instant,
 };
 use std::{
     fmt::Debug,
     io,
-    mem::MaybeUninit,
-    net::Ipv4Addr,
     num::NonZeroU32,
-    ops::Range,
     os::fd::{AsRawFd, RawFd},
 };
-use tracing::{debug, trace};
+use tracing::trace;
 use xsk_rs::{
     CompQueue, FillQueue, FrameDesc,
-    config::{LibxdpFlags, SocketConfig, UmemConfig, XdpFlags},
+    config::{LibxdpFlags, SocketConfig, UmemConfig},
     socket::{RxQueue, Socket as XskSocket, TxQueue},
     umem::Umem,
 };
-
-use crate::bpf::xdp_ip_filter::XdpIpFilter;
 
 #[derive(Debug)]
 pub(crate) struct XdpDevice<const FC: usize = 1024> {
@@ -160,7 +154,6 @@ impl<const FC: usize> XdpReader<FC> {
         );
 
         if !s1.is_empty() {
-            // TODO: wakeup
             let n = unsafe { self.fq.produce(s1) };
             // kernel_can_write_len update automatically
             self.user_has_recv_len -= n;
@@ -256,7 +249,7 @@ impl<const FC: usize> XdpReader<FC> {
 
     pub(crate) fn get_fd_can_read(&mut self) -> Option<&FrameDesc> {
         // 当用户已读的fd足够多时，我们批量向内核提供
-        // WARN: 回收的时机不宜太早（性能考量），也不宜太晚（内核没有可用的 fd 会导致丢数据）
+        // PERF: 回收的时机不宜太早（性能考量），也不宜太晚（内核没有可用的 fd 会导致丢数据）
         if self.user_has_recv_len() >= (FC / 2) {
             self.user_produce();
         }
@@ -344,11 +337,6 @@ impl<const FC: usize> XdpWriter<FC> {
             self.user_can_write_pos,
             &mut self.tx_fds,
         );
-
-        // WARN: BLOCK
-        // while !self.tx_q.poll(100).unwrap() {
-        //     continue;
-        // }
 
         if !s1.is_empty() {
             let n = unsafe { self.tx_q.produce(s1) };
@@ -533,7 +521,7 @@ pub struct XskTxToken<'a> {
 }
 
 impl<'a> TxToken for XskTxToken<'a> {
-    fn consume<R, F>(mut self, len: usize, f: F) -> R
+    fn consume<R, F>(self, len: usize, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,
     {
@@ -564,11 +552,7 @@ const fn advance(pos: usize, n: usize, n_max: usize) -> usize {
     (pos + n) % n_max
 }
 
-/// 计算在长度为 n_max 的循环数组中，从 pos1 前进到 pos2 需要的步数。
-const fn advance_distance(pos1: usize, pos2: usize, n_max: usize) -> usize {
-    (pos2 + n_max - pos1) % n_max
-}
-
+/// 在循环数组中，获取从 pos1 开始，长度为 len 的区域，分割成两个切片返回。
 fn advance_get_mut<T>(len: usize, pos1: usize, pos2: usize, arr: &mut [T]) -> (&mut [T], &mut [T]) {
     let n_max = arr.len();
 
@@ -605,8 +589,6 @@ fn advance_get_mut<T>(len: usize, pos1: usize, pos2: usize, arr: &mut [T]) -> (&
 #[cfg(test)]
 #[serial_test::serial(xdp)]
 mod tests {
-    use std::{io::Write, str::FromStr};
-
     use super::*;
     use crate::test_utils::*;
     use smoltcp::{
@@ -614,6 +596,8 @@ mod tests {
         time::Instant,
         wire::*,
     };
+    use std::io::Write;
+    use xsk_rs::config::XdpFlags;
 
     const FRAME_COUNT: usize = 16;
 
@@ -755,78 +739,6 @@ mod tests {
         }
     }
 
-    // #[test]
-    // fn test_xdp_reader_and_writer2() {
-    //     setup();
-    //
-    //     let mut device1 = create_device(INTERFACE_NAME1);
-    //     let mut device2 = create_device(INTERFACE_NAME2);
-    //
-    //     let msg = b"Hello XDP!";
-    //     {
-    //         let tx_token = device1.transmit(Instant::now()).unwrap();
-    //         let frame_len = EthernetFrame::<&[u8]>::header_len() + msg.len();
-    //
-    //         tx_token.consume(frame_len, |buf| fill_send_buf(buf, msg));
-    //     }
-    //
-    //     {
-    //         let tx_token = device1.transmit(Instant::now()).unwrap();
-    //         let frame_len = EthernetFrame::<&[u8]>::header_len() + msg.len();
-    //
-    //         tx_token.consume(frame_len, |buf| fill_send_buf(buf, msg));
-    //     }
-    //
-    //     {
-    //         let tx_token = device1.transmit(Instant::now()).unwrap();
-    //         let frame_len = EthernetFrame::<&[u8]>::header_len() + msg.len();
-    //
-    //         tx_token.consume(frame_len, |buf| fill_send_buf(buf, msg));
-    //     }
-    //
-    //     assert_eq!(device1.writer.user_can_write_len(), FRAME_COUNT - 3);
-    //     assert_eq!(device1.writer.user_has_write_len(), 3);
-    //     assert_eq!(device1.writer.kernel_has_send_len(), 0);
-    //
-    //     assert_eq!(device1.writer.user_can_write_pos, 3 % FRAME_COUNT);
-    //     assert_eq!(device1.writer.user_has_write_pos, 0 % FRAME_COUNT);
-    //     assert_eq!(device1.writer.kernel_has_send_pos, 0 % FRAME_COUNT);
-    //
-    //     device1.flush().unwrap();
-    //
-    //     assert_eq!(device1.writer.user_can_write_len(), FRAME_COUNT - 3);
-    //     assert_eq!(device1.writer.user_has_write_len(), 0);
-    //     assert_eq!(device1.writer.kernel_has_send_len(), 3);
-    //
-    //     assert_eq!(device1.writer.user_can_write_pos, 3 % FRAME_COUNT);
-    //     assert_eq!(device1.writer.user_has_write_pos, 3 % FRAME_COUNT);
-    //     assert_eq!(device1.writer.kernel_has_send_pos, 0 % FRAME_COUNT);
-    //
-    //     let n = device1.writer.user_consume();
-    //     assert_eq!(n, 3);
-    //
-    //     assert_eq!(device1.writer.user_can_write_len(), FRAME_COUNT);
-    //     assert_eq!(device1.writer.user_has_write_len(), 0);
-    //     assert_eq!(device1.writer.kernel_has_send_len(), 0);
-    //
-    //     assert_eq!(device1.writer.user_can_write_pos, 3 % FRAME_COUNT);
-    //     assert_eq!(device1.writer.user_has_write_pos, 3 % FRAME_COUNT);
-    //     assert_eq!(device1.writer.kernel_has_send_pos, 3 % FRAME_COUNT);
-    //
-    //     // {
-    //     //     let (rx_token, _) = device2.receive(Instant::now()).unwrap();
-    //     //     rx_token.consume(|buf| check_recv_buf(buf, msg));
-    //     // }
-    //     //
-    //     // assert_eq!(device2.reader.kernel_can_write_len(), FRAME_COUNT - 3);
-    //     // assert_eq!(device2.reader.user_can_recv_len(), 2);
-    //     // assert_eq!(device2.reader.user_has_recv_len(), 1);
-    //     //
-    //     // assert_eq!(device2.reader.kernel_can_write_pos, 0 % FRAME_COUNT);
-    //     // assert_eq!(device2.reader.user_can_recv_pos, 1 % FRAME_COUNT);
-    //     // assert_eq!(device2.reader.user_has_recv_pos, 0 % FRAME_COUNT);
-    // }
-    //
     #[test]
     fn test_device_send_and_recv() {
         setup();
@@ -847,120 +759,4 @@ mod tests {
             rx_token.consume(|buf| check_recv_buf(buf, &msg))
         }
     }
-    //
-    // #[test]
-    // fn test_device_send_and_recv_multi() {
-    //     setup();
-    //
-    //     let mut device1 = create_device(INTERFACE_NAME1);
-    //     let mut device2 = create_device(INTERFACE_NAME2);
-    //
-    //     let mac1 = INTERFACE_MAC1
-    //         .parse::<smoltcp::wire::EthernetAddress>()
-    //         .unwrap();
-    //     let mac2 = INTERFACE_MAC2
-    //         .parse::<smoltcp::wire::EthernetAddress>()
-    //         .unwrap();
-    //
-    //     // --- device1 发送消息 ---
-    //     let msg = b"Hello XDP!";
-    //     {
-    //         let tx_token = device1.transmit(Instant::now()).unwrap();
-    //         let frame_len = EthernetFrame::<&[u8]>::header_len() + msg.len();
-    //
-    //         tx_token.consume(frame_len, |mut frame_buf| {
-    //             // 在缓冲区上构建一个以太网帧
-    //             let mut frame = EthernetFrame::new_unchecked(&mut frame_buf);
-    //             frame.set_dst_addr(mac2);
-    //             frame.set_src_addr(mac1);
-    //             // 指定上层协议
-    //             frame.set_ethertype(EthernetProtocol::Ipv4);
-    //             // 将消息内容复制到帧的负载部分
-    //             frame.payload_mut().copy_from_slice(msg);
-    //         });
-    //
-    //         // 唤醒内核处理发送队列
-    //         device1.flush().unwrap();
-    //     }
-    //
-    //     // --- device2 接收消息 ---
-    //     {
-    //         let (rx_token, _) = device2.receive(Instant::now()).unwrap();
-    //         rx_token.consume(|frame_buf| {
-    //             let frame = EthernetFrame::new_checked(frame_buf).unwrap();
-    //             // 验证MAC地址和负载内容
-    //             assert_eq!(frame.src_addr(), mac1);
-    //             assert_eq!(frame.dst_addr(), mac2);
-    //             assert_eq!(frame.payload(), msg);
-    //         });
-    //     }
-    //
-    //     // --- device1 发送消息 ---
-    //     let msg = b"Hello XDP2!";
-    //     {
-    //         let tx_token = device1.transmit(Instant::now()).unwrap();
-    //         let frame_len = EthernetFrame::<&[u8]>::header_len() + msg.len();
-    //
-    //         tx_token.consume(frame_len, |mut frame_buf| {
-    //             // 在缓冲区上构建一个以太网帧
-    //             let mut frame = EthernetFrame::new_unchecked(&mut frame_buf);
-    //             frame.set_dst_addr(mac2);
-    //             frame.set_src_addr(mac1);
-    //             // 指定上层协议
-    //             frame.set_ethertype(EthernetProtocol::Ipv4);
-    //             // 将消息内容复制到帧的负载部分
-    //             frame.payload_mut().copy_from_slice(msg);
-    //         });
-    //
-    //         // 唤醒内核处理发送队列
-    //         device1.flush().unwrap();
-    //     }
-    //
-    //     // --- device2 接收消息 ---
-    //     {
-    //         let (rx_token, _) = device2.receive(Instant::now()).unwrap();
-    //         rx_token.consume(|frame_buf| {
-    //             let frame = EthernetFrame::new_checked(frame_buf).unwrap();
-    //             // 验证MAC地址和负载内容
-    //             assert_eq!(frame.src_addr(), mac1);
-    //             assert_eq!(frame.dst_addr(), mac2);
-    //             assert_eq!(frame.payload(), msg);
-    //         });
-    //     }
-    //
-    //     // --- device1 发送消息 ---
-    //     let msg = b"Hello XDP3!";
-    //     {
-    //         let tx_token = device1.transmit(Instant::now()).unwrap();
-    //         let frame_len = EthernetFrame::<&[u8]>::header_len() + msg.len();
-    //
-    //         tx_token.consume(frame_len, |mut frame_buf| {
-    //             // 在缓冲区上构建一个以太网帧
-    //             let mut frame = EthernetFrame::new_unchecked(&mut frame_buf);
-    //             frame.set_dst_addr(mac2);
-    //             frame.set_src_addr(mac1);
-    //             // 指定上层协议
-    //             frame.set_ethertype(EthernetProtocol::Ipv4);
-    //             // 将消息内容复制到帧的负载部分
-    //             frame.payload_mut().copy_from_slice(msg);
-    //         });
-    //
-    //         // 唤醒内核处理发送队列
-    //         device1.flush().unwrap();
-    //     }
-    //
-    //     // --- device2 接收消息 ---
-    //     {
-    //         let (rx_token, _) = device2.receive(Instant::now()).unwrap();
-    //         rx_token.consume(|frame_buf| {
-    //             let frame = EthernetFrame::new_checked(frame_buf).unwrap();
-    //             // 验证MAC地址和负载内容
-    //             assert_eq!(frame.src_addr(), mac1);
-    //             assert_eq!(frame.dst_addr(), mac2);
-    //             assert_eq!(frame.payload(), msg);
-    //         });
-    //     }
-    // }
-
-    // TODO: 测试边界情况，例如pos达到512时
 }

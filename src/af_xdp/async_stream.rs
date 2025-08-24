@@ -2,10 +2,7 @@ use crate::af_xdp::reactor::global_reactor;
 use portpicker::pick_unused_port;
 use smoltcp::{
     iface::SocketHandle,
-    phy::{Device, RxToken},
     socket::tcp::{Socket as TcpSocket, SocketBuffer, State as TcpState},
-    time::Instant,
-    wire::EthernetFrame,
 };
 use std::{future::poll_fn, io, net::ToSocketAddrs, task::Poll};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -41,62 +38,21 @@ impl XdpTcpStream {
 
             debug_assert_eq!(socket.state(), TcpState::SynSent);
 
-            // TODO: 阻塞，when full
-            let handle = reactor.sockets.add(socket);
-            reactor.poll();
-            handle
+            reactor.sockets.add(socket)
         };
 
-        // FIX:
-        let mut reactor = global_reactor();
-        std::thread::sleep(std::time::Duration::from_secs(1));
-        reactor.poll_and_flush().unwrap();
-        std::thread::sleep(std::time::Duration::from_secs(1));
-        reactor.poll_and_flush().unwrap();
-        loop {
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            // println!("debug3");
-            // if let Some((rx_token, _)) = reactor.device.receive(Instant::now()) {
-            //     rx_token.consume(|frame_buf| {
-            //         let frame = EthernetFrame::new_checked(frame_buf).unwrap();
-            //         println!(
-            //             "debug0: src={:?}, dst={:?}, ethertype={:?}, payload={:?}",
-            //             frame.src_addr(),
-            //             frame.dst_addr(),
-            //             frame.ethertype(),
-            //             frame.payload(),
-            //         );
-            //     });
-            // }
-
-            reactor.poll_and_flush().unwrap();
-            let socket = reactor.sockets.get_mut::<TcpSocket>(handle);
-
-            println!("debug0: state={:?}", socket.state());
-            match socket.state() {
-                TcpState::Established => break,
-                TcpState::SynSent => {
-                    // socket.register_send_waker(cx.waker());
-                    // Poll::Pending
-                }
-                _ => unreachable!(),
-            }
-        }
-        println!("debug2");
         poll_fn(|cx| {
             let mut reactor = global_reactor();
+            reactor.poll_and_flush()?;
+
             let socket = reactor.sockets.get_mut::<TcpSocket>(handle);
 
             match socket.state() {
-                TcpState::Established => Poll::Ready(Ok(())),
                 TcpState::SynSent => {
                     socket.register_send_waker(cx.waker());
                     Poll::Pending
                 }
-                _ => Poll::Ready(Err(io::Error::other(format!(
-                    "Failed to connect, unexpected TCP state: {:?}",
-                    socket.state()
-                )))),
+                _ => Poll::Ready(Ok::<_, io::Error>(())),
             }
         })
         .await?;
@@ -199,92 +155,87 @@ impl AsyncWrite for XdpTcpStream {
 #[cfg(test)]
 #[serial_test::serial]
 mod tests {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
     use super::*;
-    use crate::af_xdp::reactor::{XdpReactor, global_reactor};
     use crate::test_utils::*;
-    use tokio::net::TcpListener;
+    use std::sync::{Arc, Mutex};
 
     #[tokio::test]
-    async fn stream_connect() {
+    async fn test_connect() {
         setup();
 
-        let listener = TcpListener::bind("127.0.0.1:12345").await.unwrap();
+        let reactor1 = Arc::new(Mutex::new(create_reactor1()));
+        let reactor2 = create_reactor2();
 
-        tokio::spawn(async move {
-            listener.accept().await.unwrap();
+        run_reactor_background(reactor1.clone());
+        replace_global_reactor(reactor2);
+
+        let port = 12345;
+
+        let mut listener =
+            bind_with_reactor(format!("{INTERFACE_IP1}:{port}"), reactor1.clone()).unwrap();
+        let handle = tokio::spawn(async move {
+            accept_with_reactor(&mut listener, reactor1.clone())
+                .await
+                .unwrap();
         });
 
-        // TcpStream::connect("127.0.0.1:12345").await.unwrap();
-        // let _ = XdpTcpStream::connect("180.101.49.44:443").await.unwrap();
-        // let _ = XdpTcpStream::connect("127.0.0.1:12345").await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        let addr = "127.0.0.1:12345";
-        let handle = {
-            // let mut socket = TcpSocket::new(
-            //     SocketBuffer::new(vec![0; 4096]),
-            //     SocketBuffer::new(vec![0; 4096]),
-            // );
+        XdpTcpStream::connect(format!("{INTERFACE_IP1}:{port}"))
+            .await
+            .unwrap();
 
-            let mut reactor = global_reactor();
-            let handle = reactor.add_tcp_socket();
+        handle.await.unwrap();
+    }
 
-            let XdpReactor { iface, sockets, .. } = &mut *reactor;
+    #[tokio::test]
+    async fn test_read_and_write() {
+        setup();
 
-            let socket = sockets.get_mut::<TcpSocket>(handle);
+        let reactor1 = Arc::new(Mutex::new(create_reactor1()));
+        let reactor2 = create_reactor2();
 
-            let mut addrs = addr.to_socket_addrs().unwrap().peekable();
-            let local_port = pick_unused_port()
-                .ok_or_else(|| io::Error::other("Failed to pick an unused port for TCP connection"))
+        run_reactor_background(reactor1.clone());
+        replace_global_reactor(reactor2);
+
+        let port = 12345;
+        let msg = b"Hello";
+
+        let mut listener =
+            bind_with_reactor(format!("{INTERFACE_IP1}:{port}"), reactor1.clone()).unwrap();
+        let handle = tokio::spawn(async move {
+            let (mut stream, _) = accept_with_reactor(&mut listener, reactor1.clone())
+                .await
                 .unwrap();
 
-            while let Some(addr) = addrs.next() {
-                match socket.connect(iface.context(), addr, local_port) {
-                    Ok(_) => break,
-                    Err(_) if addrs.peek().is_some() => continue,
-                    // 最后的地址也连接失败
-                    e => e
-                        .map_err(|e| io::Error::other(format!("Failed to connect to {addr}: {e}")))
-                        .unwrap(),
-                }
-            }
+            let mut buf = vec![0_u8; msg.len()];
+            read_with_reactor(&mut stream, &mut buf, reactor1.clone())
+                .await
+                .unwrap();
 
-            debug_assert_eq!(socket.state(), TcpState::SynSent);
+            assert_eq!(&buf, &msg);
 
-            // TODO: 阻塞，when full
-            reactor.poll();
-            handle
-        };
+            write_with_reactor(&mut stream, &buf, reactor1.clone())
+                .await
+                .unwrap();
+        });
 
-        let mut reactor = global_reactor();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        loop {
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            // println!("debug3");
-            // if let Some((rx_token, _)) = reactor.device.receive(Instant::now()) {
-            //     rx_token.consume(|frame_buf| {
-            //         let frame = EthernetFrame::new_checked(frame_buf).unwrap();
-            //         println!(
-            //             "debug0: src={:?}, dst={:?}, ethertype={:?}, payload={:?}",
-            //             frame.src_addr(),
-            //             frame.dst_addr(),
-            //             frame.ethertype(),
-            //             frame.payload(),
-            //         );
-            //     });
-            // }
+        let mut stream = XdpTcpStream::connect(format!("{INTERFACE_IP1}:{port}"))
+            .await
+            .unwrap();
 
-            reactor.poll_and_flush().unwrap();
-            let socket = reactor.sockets.get_mut::<TcpSocket>(handle);
+        stream.write_all(b"Hello".as_slice()).await.unwrap();
+        stream.flush().await.unwrap();
 
-            println!("debug0: state={:?}", socket.state());
-            match socket.state() {
-                TcpState::Established => break,
-                TcpState::SynSent => {
-                    // socket.register_send_waker(cx.waker());
-                    // Poll::Pending
-                }
-                _ => unreachable!(),
-            }
-        }
+        let mut buf = vec![0_u8; msg.len()];
+        stream.read_exact(&mut buf).await.unwrap();
+
+        assert_eq!(&buf, &msg);
+
+        handle.await.unwrap();
     }
 }

@@ -81,7 +81,8 @@ int xdp_ip_filter_func(struct xdp_md *ctx) {
 
   // 检查 IP 是否在白名单
   void *is_allowed = bpf_map_lookup_elem(&allowed_ips_map, &ip->saddr);
-  bpf_printk("debug receive TCP, saddr=%x, is_allowed=%p", ip->saddr, is_allowed);
+  bpf_printk("debug receive TCP, saddr=%x, is_allowed=%p", ip->saddr,
+             is_allowed);
 
   if (is_allowed) {
     // IP 在白名单中，重定向数据包到队列0 (Rust程序必须监听队列0)。

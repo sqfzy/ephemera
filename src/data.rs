@@ -1,6 +1,5 @@
 use crate::order::Side;
 use crate::{Symbol, Timestamp};
-use bytestring::ByteString;
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use strum::EnumDiscriminants;

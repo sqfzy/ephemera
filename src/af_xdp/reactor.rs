@@ -13,6 +13,39 @@ use std::{
 };
 
 pub(crate) static XDP_REACTOR: LazyLock<Mutex<XdpReactor>> = LazyLock::new(|| {
+    let reactor = create_global_reactor();
+
+    run_global_reactor_background();
+
+    Mutex::new(reactor)
+});
+
+pub(crate) fn global_reactor() -> MutexGuard<'static, XdpReactor> {
+    XDP_REACTOR.lock().unwrap()
+}
+
+// Reactor poll in background thread, so user should just care the state change of sockets.
+pub(crate) fn run_global_reactor_background() {
+    std::thread::spawn(move || {
+        loop {
+            let (fd, delay) = {
+                let mut reactor_guard = global_reactor();
+                let reactor = &mut *reactor_guard;
+
+                while reactor.poll_and_flush().unwrap() == PollResult::SocketStateChanged {}
+
+                (
+                    reactor.device.as_raw_fd(),
+                    reactor.iface.poll_delay(Instant::now(), &reactor.sockets),
+                )
+            };
+
+            smoltcp::phy::wait(fd, delay).unwrap();
+        }
+    });
+}
+
+fn create_global_reactor() -> XdpReactor {
     let EphemaraConfig {
         xdp_if_name,
         xdp_mac,
@@ -69,16 +102,12 @@ pub(crate) static XDP_REACTOR: LazyLock<Mutex<XdpReactor>> = LazyLock::new(|| {
         bpf.add_allowed_ip(ip).unwrap();
     }
 
-    Mutex::new(XdpReactor {
+    XdpReactor {
         iface,
         device,
         sockets: SocketSet::new(vec![]),
         bpf,
-    })
-});
-
-pub(crate) fn global_reactor() -> MutexGuard<'static, XdpReactor> {
-    XDP_REACTOR.lock().unwrap()
+    }
 }
 
 pub(crate) struct XdpReactor {
@@ -89,21 +118,6 @@ pub(crate) struct XdpReactor {
 }
 
 impl XdpReactor {
-    /// 驱动整个网络栈，处理所有事件。
-    pub(crate) fn poll3(&mut self, timeout: Option<Duration>) -> io::Result<()> {
-        let now = Instant::now();
-
-        // let delay = self.iface.poll_delay(now, &self.sockets).or(timeout);
-        // smoltcp::phy::wait(self.device.as_raw_fd(), delay)?;
-
-        self.iface.poll(now, &mut self.device, &mut self.sockets);
-
-        // PERF:
-        self.device.flush()?;
-
-        Ok(())
-    }
-
     /// Poll the interface, try to make all sockets state advance.
     /// Usually, you should call `poll` before the socket recvice something; and call `poll_and_wakeup` after the socket send something.
     pub(crate) fn poll(&mut self) -> PollResult {
@@ -122,10 +136,10 @@ impl XdpReactor {
         Ok(res)
     }
 
-    pub(crate) fn poll_timeout(&mut self, timeout: Duration) -> io::Result<PollResult> {
+    pub(crate) fn poll_timeout(&mut self, timeout: Option<Duration>) -> io::Result<PollResult> {
         let now = Instant::now();
 
-        let delay = self.iface.poll_delay(now, &self.sockets).or(Some(timeout));
+        let delay = self.iface.poll_delay(now, &self.sockets).or(timeout);
         smoltcp::phy::wait(self.device.as_raw_fd(), delay)?;
 
         let res = self.iface.poll(now, &mut self.device, &mut self.sockets);
@@ -133,10 +147,13 @@ impl XdpReactor {
         Ok(res)
     }
 
-    pub(crate) fn poll_timeout_and_flush(&mut self, timeout: Duration) -> io::Result<PollResult> {
+    pub(crate) fn poll_timeout_and_flush(
+        &mut self,
+        timeout: Option<Duration>,
+    ) -> io::Result<PollResult> {
         let now = Instant::now();
 
-        let delay = self.iface.poll_delay(now, &self.sockets).or(Some(timeout));
+        let delay = self.iface.poll_delay(now, &self.sockets).or(timeout);
         smoltcp::phy::wait(self.device.as_raw_fd(), delay)?;
 
         let res = self.iface.poll(now, &mut self.device, &mut self.sockets);
@@ -154,6 +171,12 @@ impl XdpReactor {
         );
         self.sockets.add(socket)
     }
+
+    pub(crate) fn waiter(&mut self) -> impl FnOnce() -> io::Result<()> {
+        let delay = self.iface.poll_delay(Instant::now(), &self.sockets);
+        let fd = self.device.as_raw_fd();
+        move || smoltcp::phy::wait(fd, delay)
+    }
 }
 
 #[cfg(test)]
@@ -165,89 +188,7 @@ mod tests {
         socket::tcp::{Socket as TcpSocket, State},
         wire::IpEndpoint,
     };
-    use std::{net::Ipv4Addr, str::FromStr};
-
-    fn create_reactor1() -> XdpReactor {
-        let mac = INTERFACE_MAC1.parse::<EthernetAddress>().unwrap();
-
-        let if_index = nix::net::if_::if_nametoindex(INTERFACE_NAME1).unwrap() as i32;
-        let bpf = XdpIpFilter::new(if_index, libbpf_rs::XdpFlags::SKB_MODE).unwrap();
-
-        let mut device = XdpDevice::new(INTERFACE_NAME1).unwrap();
-        let mut iface = Interface::new(
-            smoltcp::iface::Config::new(mac.into()),
-            &mut device,
-            Instant::now(),
-        );
-        iface.update_ip_addrs(|ip_addrs| {
-            ip_addrs
-                .push(IpCidr::new(IpAddress::from_str(INTERFACE_IP1).unwrap(), 24))
-                .unwrap()
-        });
-
-        let xsk_fd = device.as_raw_fd();
-        bpf.skel
-            .maps
-            .xsks_map
-            .update(
-                &0_i32.to_le_bytes(), // 硬编码为0，即队列0
-                &xsk_fd.to_le_bytes(),
-                MapFlags::ANY,
-            )
-            .unwrap();
-        bpf.add_allowed_ip(INTERFACE_IP1.parse::<Ipv4Addr>().unwrap())
-            .unwrap();
-        bpf.add_allowed_ip(INTERFACE_IP2.parse::<Ipv4Addr>().unwrap())
-            .unwrap();
-
-        XdpReactor {
-            iface,
-            device,
-            sockets: SocketSet::new(vec![]),
-            bpf,
-        }
-    }
-
-    fn create_reactor2() -> XdpReactor {
-        let mac = INTERFACE_MAC2.parse::<EthernetAddress>().unwrap();
-
-        let if_index = nix::net::if_::if_nametoindex(INTERFACE_NAME2).unwrap() as i32;
-        let bpf = XdpIpFilter::new(if_index, libbpf_rs::XdpFlags::SKB_MODE).unwrap();
-
-        let mut device = XdpDevice::new(INTERFACE_NAME2).unwrap();
-        let mut iface = Interface::new(
-            smoltcp::iface::Config::new(mac.into()),
-            &mut device,
-            Instant::now(),
-        );
-        iface.update_ip_addrs(|ip_addrs| {
-            ip_addrs
-                .push(IpCidr::new(IpAddress::from_str(INTERFACE_IP2).unwrap(), 24))
-                .unwrap()
-        });
-
-        let xsk_fd = device.as_raw_fd();
-        bpf.skel
-            .maps
-            .xsks_map
-            .update(
-                &0_i32.to_le_bytes(), // 硬编码为0，即队列0
-                &xsk_fd.to_le_bytes(),
-                MapFlags::ANY,
-            )
-            .unwrap();
-        bpf.add_allowed_ip(INTERFACE_IP1.parse::<Ipv4Addr>().unwrap())
-            .unwrap();
-        bpf.add_allowed_ip(INTERFACE_IP2.parse::<Ipv4Addr>().unwrap())
-            .unwrap();
-
-        XdpReactor {
-            iface,
-            device,
-            sockets: SocketSet::new(vec![]),
-            bpf,
-        }
-    }
+    use std::net::Ipv4Addr;
 
     #[test]
     fn test_reactor_read_and_write() {
@@ -327,7 +268,9 @@ mod tests {
         );
 
         assert_eq!(
-            reactor2.poll_timeout(Duration::from_millis(100)).unwrap(),
+            reactor2
+                .poll_timeout(Some(Duration::from_millis(100)))
+                .unwrap(),
             PollResult::SocketStateChanged
         );
 
@@ -339,56 +282,5 @@ mod tests {
             .unwrap();
 
         assert_eq!(buf, msg);
-    }
-
-    #[test]
-    fn test_real_reactor() {
-        setup();
-
-        let server_ip = "36.152.44.132";
-        let client_ip = "192.168.2.8";
-
-        let mut reactor = global_reactor();
-
-        let handle = reactor.add_tcp_socket();
-
-        let server_endpoint =
-            IpEndpoint::new(server_ip.parse::<Ipv4Addr>().unwrap().into(), 80);
-        let local_endpoint = IpEndpoint::new(client_ip.parse::<Ipv4Addr>().unwrap().into(), 12346);
-
-        {
-            let XdpReactor { iface, sockets, .. } = &mut *reactor;
-            sockets
-                .get_mut::<TcpSocket>(handle)
-                .connect(iface.context(), server_endpoint, local_endpoint)
-                .unwrap();
-        }
-
-        for _ in 0..30 {
-            reactor.poll_and_flush().unwrap();
-
-            if reactor.sockets.get_mut::<TcpSocket>(handle).state() == State::SynSent {
-                break;
-            }
-        }
-
-        assert_eq!(
-            reactor.sockets.get_mut::<TcpSocket>(handle).state(),
-            State::SynSent
-        );
-
-        for _ in 0..30 {
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            reactor.poll_and_flush().unwrap();
-
-            if reactor.sockets.get_mut::<TcpSocket>(handle).state() == State::Established {
-                break;
-            }
-        }
-
-        assert_eq!(
-            reactor.sockets.get_mut::<TcpSocket>(handle).state(),
-            State::Established
-        );
     }
 }
