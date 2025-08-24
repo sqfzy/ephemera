@@ -2,12 +2,11 @@
 #![feature(gen_blocks)]
 #![feature(async_fn_traits)]
 
-pub mod af_xdp;
 pub mod config;
 pub mod data;
 pub mod order;
 pub mod source;
-mod bpf;
+pub mod xdp;
 
 pub type Timestamp = u64;
 pub type Symbol = bytestring::ByteString;

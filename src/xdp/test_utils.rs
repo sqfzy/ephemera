@@ -1,26 +1,27 @@
-use std::future::poll_fn;
-use std::io;
-use std::os::fd::AsRawFd;
-use std::str::FromStr;
-use std::sync::{Arc, Mutex, OnceLock};
-use std::task::Poll;
-
+use crate::xdp::{
+    async_listener::XdpTcpListener,
+    async_stream::XdpTcpStream,
+    bpf::xdp_ip_filter::XdpIpFilter,
+    device::XdpDevice,
+    reactor::{XdpReactor, global_reactor},
+};
 use libbpf_rs::{MapCore, MapFlags};
 use portpicker::pick_unused_port;
-use smoltcp::socket::tcp::State;
 use smoltcp::{
     iface::{Interface, PollResult, SocketSet},
-    socket::tcp::{Socket as TcpSocket, SocketBuffer},
+    socket::tcp::{Socket as TcpSocket, SocketBuffer, State},
     time::Instant,
     wire::{EthernetAddress, IpAddress, IpCidr},
 };
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs};
-
-use crate::af_xdp::async_listener::XdpTcpListener;
-use crate::af_xdp::async_stream::XdpTcpStream;
-use crate::af_xdp::device::XdpDevice;
-use crate::af_xdp::reactor::{XdpReactor, global_reactor};
-use crate::bpf::xdp_ip_filter::XdpIpFilter;
+use std::{
+    future::poll_fn,
+    io,
+    net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs},
+    os::fd::AsRawFd,
+    str::FromStr,
+    sync::{Arc, Mutex, OnceLock},
+    task::Poll,
+};
 
 pub(crate) const INTERFACE_NAME1: &str = "test_iface1";
 pub(crate) const INTERFACE_MAC1: &str = "2a:2b:72:fb:e8:cc";
@@ -212,10 +213,6 @@ pub(crate) async fn connect_with_reactor(
         debug_assert_eq!(socket.state(), State::SynSent);
 
         let handle = reactor.sockets.add(socket);
-        // INFO:
-        // We create a new socket and call connect() to change it's state, but the reactor
-        // thread is still sleeping because `add new socket` won't wake it up. We need
-        // to call `poll_and_flush` by ourself to wake it up.
         reactor.poll_and_flush()?;
         handle
     };

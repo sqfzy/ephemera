@@ -1,4 +1,4 @@
-use crate::{af_xdp::device::XdpDevice, bpf::xdp_ip_filter::XdpIpFilter, config::EphemaraConfig};
+use crate::{config::EphemaraConfig, xdp::bpf::xdp_ip_filter::XdpIpFilter, xdp::device::XdpDevice};
 use libbpf_rs::{MapCore, MapFlags};
 use smoltcp::{
     iface::{Interface, PollResult, SocketSet},
@@ -183,7 +183,7 @@ impl XdpReactor {
 #[serial_test::serial(xdp)]
 mod tests {
     use super::*;
-    use crate::af_xdp::test_utils::*;
+    use crate::xdp::test_utils::*;
     use smoltcp::{
         socket::tcp::{Socket as TcpSocket, State},
         wire::IpEndpoint,

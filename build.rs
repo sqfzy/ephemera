@@ -2,7 +2,7 @@ use libbpf_cargo::SkeletonBuilder;
 use std::path::Path;
 
 // Define the path to your BPF C source code.
-const BPF_SRC_PATH: &str = "src/bpf/xdp_ip_filter.bpf.c";
+const BPF_SRC_PATH: &str = "src/xdp/bpf/xdp_ip_filter.bpf.c";
 
 fn main() {
     // Tell Cargo to re-run the build script if the BPF C source file changes.
@@ -19,6 +19,4 @@ fn main() {
         .source(BPF_SRC_PATH)
         .build_and_generate(&skel_path)
         .expect("Failed to compile and generate BPF skeleton");
-
-    println!("✅ BPF program compiled and skeleton generated successfully.");
 }

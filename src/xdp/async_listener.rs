@@ -1,4 +1,4 @@
-use crate::af_xdp::{async_stream::XdpTcpStream, reactor::global_reactor};
+use crate::xdp::{async_stream::XdpTcpStream, reactor::global_reactor};
 use smoltcp::{
     iface::SocketHandle,
     socket::tcp::{Socket as TcpSocket, SocketBuffer, State},
@@ -74,7 +74,7 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     use super::*;
-    use crate::af_xdp::test_utils::*;
+    use crate::xdp::test_utils::*;
     use std::sync::{Arc, Mutex};
 
     #[tokio::test]

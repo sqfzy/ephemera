@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 xsk-rs = { path = "./vendor/xsk-rs" }
+# xsk-rs = "0.7"
 # pnet = "0.35"
 smoltcp = { version = "0.12" , features = ["log"]}
 url = "2.5.4"

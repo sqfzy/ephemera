@@ -7,3 +7,5 @@ smoltcp是面向状态的，而不是过程
 
 bpf程序没问题，可以正常转发。但程序有时候能收到，有时候收不到。
 可以收到ARP包，但为什么不能收到TCP包？
+
+不要`sudo -E ~/.cargo/bin/cargo build`，否则link时会报错
