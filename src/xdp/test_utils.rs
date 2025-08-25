@@ -19,7 +19,7 @@ use std::{
     net::{IpAddr, SocketAddr, ToSocketAddrs},
     os::fd::AsRawFd,
     str::FromStr,
-    sync::{Arc, Mutex, OnceLock},
+    sync::{Arc, Mutex},
     task::Poll,
 };
 
@@ -30,19 +30,6 @@ pub(crate) const INTERFACE_IP1: &str = "192.168.2.9";
 pub(crate) const INTERFACE_NAME2: &str = "test_iface2";
 pub(crate) const INTERFACE_MAC2: &str = "ea:d8:f6:0e:76:01";
 pub(crate) const INTERFACE_IP2: &str = "192.168.2.10";
-
-/// 需要先运行setup_net.nu
-pub fn setup() {
-    static START: OnceLock<()> = OnceLock::new();
-
-    START.get_or_init(|| {
-        let level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
-
-        tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::from_str(&level).unwrap())
-            .init();
-    });
-}
 
 pub(crate) fn create_reactor1() -> XdpReactor {
     let mac = INTERFACE_MAC1.parse::<EthernetAddress>().unwrap();

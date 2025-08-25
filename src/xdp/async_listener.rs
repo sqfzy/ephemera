@@ -71,11 +71,11 @@ impl XdpTcpListener {
 
 #[cfg(test)]
 mod tests {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
     use super::*;
+    use crate::test_utils::*;
     use crate::xdp::test_utils::*;
     use std::sync::{Arc, Mutex};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     #[tokio::test]
     async fn test_bind() {

@@ -590,6 +590,7 @@ fn advance_get_mut<T>(len: usize, pos1: usize, pos2: usize, arr: &mut [T]) -> (&
 #[serial_test::serial(xdp)]
 mod tests {
     use super::*;
+    use crate::test_utils::*;
     use crate::xdp::test_utils::*;
     use smoltcp::{
         phy::{Device, RxToken, TxToken},

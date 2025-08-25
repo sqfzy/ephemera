@@ -127,7 +127,8 @@ async fn okx_raw_data_stream<DR: DeserializeOwned + Send + 'static>(
         .await?;
 
     // Each channel subscription will get a response.
-    for _ in 0..channel_count {
+    let mut i = 0;
+    while i < channel_count {
         // Expect a response like this:
         // {
         //   "event": "subscribe",
@@ -143,11 +144,16 @@ async fn okx_raw_data_stream<DR: DeserializeOwned + Send + 'static>(
             .wrap_err("Failed to subscribe")??
             .as_payload()
             .to_vec();
-        let resp = simd_json::from_slice::<WsResponse>(&mut resp)?;
-        ensure!(
-            resp.event == WsOperation::Subscribe,
-            "Failed to subscribe with response:\n {resp:?}",
-        );
+
+        // WsResponse 并不总是连续的，有可能成功订阅第一个流之后，马上就在第二个 WsResponse
+        // 之前收到数据，我们需要忽略它。
+        if let Ok(resp) = simd_json::from_slice::<WsResponse>(&mut resp) {
+            i += 1;
+            ensure!(
+                resp.event == WsOperation::Subscribe,
+                "Failed to subscribe with response:\n {resp:?}",
+            );
+        }
     }
 
     let stream = stream! {

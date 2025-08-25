@@ -2,8 +2,7 @@
 
 use crate::{
     Timestamp,
-    data::{BookData, TradeData},
-    order::Side,
+    data::{BookData, TradeData,Side},
 };
 use bytestring::ByteString;
 use eyre::Result;

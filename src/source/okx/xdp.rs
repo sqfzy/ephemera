@@ -64,18 +64,21 @@ pub async fn okx_xdp_book_data_stream(
 }
 
 #[cfg(test)]
+#[serial_test::serial(xdp)]
 mod tests {
     use super::*;
     use crate::Symbol;
+    use crate::test_utils::*;
 
     const SYMBOLS: [Symbol; 2] = [
         Symbol::from_static("BTC-USDT"),
         Symbol::from_static("ETH-USDT"),
     ];
-    const TEST_DATA_NUM: usize = 5;
+    const TEST_DATA_NUM: usize = 3;
 
     #[tokio::test]
     async fn test_okx_xdp_trade_data_stream() {
+        setup();
         okx_xdp_trade_data_stream(SYMBOLS.to_vec())
             .await
             .unwrap()
@@ -89,6 +92,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_xdp_okx_candle_data_stream() {
+        setup();
         okx_xdp_candle_data_stream(SYMBOLS.to_vec(), OkxCandleInterval::Candle1s)
             .await
             .unwrap()
@@ -102,6 +106,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_xdp_okx_book_data_stream() {
+        setup();
         okx_xdp_book_data_stream(SYMBOLS.to_vec(), OkxBookChannel::BboTbt)
             .await
             .unwrap()

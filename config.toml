@@ -9,7 +9,7 @@ xdp_if_name = "eth3"
 xdp_mac = "a0:80:69:b8:94:67" 
 
 # veth_guest 的 IP 地址
-xdp_ip = "192.168.1.2"
+xdp_ip = "192.168.2.8"
 
 # 允许以下 src IP 连接到 XDP listener。
 xdp_acceptable_ips = []
@@ -18,7 +18,7 @@ xdp_skb_mod = true
 
 # --- 网络路由配置 ---
 # 沙箱的网关，即主机侧 veth_host 的 IP
-gateway_ip = "192.168.1.1"
+gateway_ip = "192.168.2.1"
 
 # --- 应用程序逻辑配置 ---
 # 你需要连接的外部 WebSocket 服务器地址

@@ -101,6 +101,14 @@ impl AsyncWrite for XdpTcpStream {
     ) -> std::task::Poll<io::Result<usize>> {
         let mut reactor = global_reactor();
 
+        println!(
+            "debug0: send_queue={}",
+            reactor
+                .sockets
+                .get_mut::<TcpSocket>(self.handle)
+                .send_queue()
+        );
+
         let socket = reactor.sockets.get_mut::<TcpSocket>(self.handle);
 
         if !socket.may_send() {
@@ -120,17 +128,19 @@ impl AsyncWrite for XdpTcpStream {
 
     fn poll_flush(
         self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
+        _cx: &mut std::task::Context<'_>,
     ) -> Poll<io::Result<()>> {
         let mut reactor = global_reactor();
-        reactor.poll_and_flush()?;
 
         let socket = reactor.sockets.get_mut::<TcpSocket>(self.handle);
-        if socket.send_queue() == 0 {
-            return Poll::Ready(Ok(()));
+        if socket.send_queue() != 0 {
+            reactor.poll_and_flush()?;
         }
-        socket.register_send_waker(cx.waker());
-        Poll::Pending
+
+        Poll::Ready(Ok(()))
+
+        // socket.register_send_waker(cx.waker());
+        // Poll::Pending
     }
 
     fn poll_shutdown(
@@ -155,12 +165,12 @@ impl AsyncWrite for XdpTcpStream {
 }
 
 #[cfg(test)]
-#[serial_test::serial]
+#[serial_test::serial(xdp)]
 mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-    use super::*;
     use crate::xdp::test_utils::*;
+    use super::*;
+    use crate::test_utils::*;
     use std::sync::{Arc, Mutex};
 
     #[tokio::test]
@@ -217,6 +227,12 @@ mod tests {
                 .await
                 .unwrap();
 
+            read_with_reactor(&mut stream, &mut buf, reactor1.clone())
+                .await
+                .unwrap();
+            read_with_reactor(&mut stream, &mut buf, reactor1.clone())
+                .await
+                .unwrap();
             assert_eq!(&buf, &msg);
 
             write_with_reactor(&mut stream, &buf, reactor1.clone())
@@ -230,6 +246,10 @@ mod tests {
             .await
             .unwrap();
 
+        stream.write_all(msg).await.unwrap();
+        // stream.flush().await.unwrap();
+
+        stream.write_all(msg).await.unwrap();
         stream.write_all(msg).await.unwrap();
         stream.flush().await.unwrap();
 

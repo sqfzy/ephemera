@@ -4,8 +4,9 @@
 
 pub mod config;
 pub mod data;
-pub mod order;
 pub mod source;
+#[cfg(test)]
+mod test_utils;
 pub mod xdp;
 
 pub type Timestamp = u64;

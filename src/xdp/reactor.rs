@@ -34,7 +34,7 @@ pub(crate) fn run_global_reactor_background() {
                 let mut reactor_guard = global_reactor();
                 let reactor = &mut *reactor_guard;
 
-                while reactor.poll_and_flush().unwrap() == PollResult::SocketStateChanged {}
+                reactor.poll_and_flush().unwrap();
 
                 (
                     reactor.device.as_raw_fd(),
@@ -166,6 +166,10 @@ impl XdpReactor {
         Ok(res)
     }
 
+    pub(crate) fn flush(&mut self) -> io::Result<usize> {
+        self.device.flush()
+    }
+
     pub(crate) fn add_tcp_socket(&mut self) -> smoltcp::iface::SocketHandle {
         let socket = TcpSocket::new(
             SocketBuffer::new(vec![0; 4096]),
@@ -185,6 +189,7 @@ impl XdpReactor {
 #[serial_test::serial(xdp)]
 mod tests {
     use super::*;
+    use crate::test_utils::*;
     use crate::xdp::test_utils::*;
     use smoltcp::{
         socket::tcp::{Socket as TcpSocket, State},

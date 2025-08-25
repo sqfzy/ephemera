@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::{Timestamp, data::*, order::Side};
+use crate::{Timestamp, data::*};
 use bytestring::ByteString;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Deserializer, Serialize};

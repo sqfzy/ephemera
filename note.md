@@ -13,3 +13,28 @@ bpf程序没问题，可以正常转发。但程序有时候能收到，有时�
 把xdp代码单独成库
 
 动态allow ip? 但listener无法在不allow remote ip的情况下取得allow remote ip
+
+xdp 使用 tokio_websockets，出现"operation would block" error. 代码：
+
+```
+Connector::new()?.wrap(host, stream).await?
+```
+
+`wrap()`返回该错误。tokio_native_tls::TlsConnector::connect()返回该错误。
+### 解决
+将`poll_flush`改为:
+
+```
+while socket.send_queue() != 0 {
+    reactor.poll_and_flush()?;
+    println!("debug0: poll_flush ok");
+    return Poll::Ready(Ok(()));
+}
+```
+
+即不要只`poll_and_flush`一次，这样做不会发送send buffer的所有数据
+
+
+会卡住，可能是注册后没有wakeup
+
+xdp okx有时候会卡在sending SYN，发现没有成功添加到白名单
