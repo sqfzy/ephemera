@@ -1,7 +1,5 @@
 use super::*;
 use crate::xdp::async_stream::XdpTcpStream;
-use http::Uri;
-use std::str::FromStr;
 
 pub async fn okx_xdp_trade_data_stream(
     symbols: Vec<impl Into<ByteString>>,
@@ -14,7 +12,8 @@ pub async fn okx_xdp_trade_data_stream(
             .collect_vec(),
         id: None,
     };
-    okx_xdp_raw_data_stream::<WsDataResponse<RawTradeData>>(OKX_WS_PUBLICE_ENDPOINT, request)
+    let stream = XdpTcpStream::connect(OKX_WS_HOST).await?;
+    okx_raw_data_stream::<WsDataResponse<RawTradeData>>(OKX_WS_PUBLICE_ENDPOINT, request, stream)
         .await
         .map(transform_raw_vec_stream)
 }
@@ -36,7 +35,8 @@ pub async fn okx_xdp_candle_data_stream(
             .collect_vec(),
         id: None,
     };
-    okx_xdp_raw_data_stream::<WsDataResponse<RawCandleData>>(OKX_WS_BUSINESS_ENDPOINT, request)
+    let stream = XdpTcpStream::connect(OKX_WS_HOST).await?;
+    okx_raw_data_stream::<WsDataResponse<RawCandleData>>(OKX_WS_BUSINESS_ENDPOINT, request, stream)
         .await
         .map(move |stream| {
             transform_raw_vec_stream_with(stream, move |resp| {
@@ -57,76 +57,10 @@ pub async fn okx_xdp_book_data_stream(
             .collect_vec(),
         id: None,
     };
-    okx_xdp_raw_data_stream::<WsDataResponse<OkxBookData>>(OKX_WS_PUBLICE_ENDPOINT, request)
+    let stream = XdpTcpStream::connect(OKX_WS_HOST).await?;
+    okx_raw_data_stream::<WsDataResponse<OkxBookData>>(OKX_WS_PUBLICE_ENDPOINT, request, stream)
         .await
         .map(transform_raw_vec_stream)
-}
-
-// TODO: 返回sink和stream
-async fn okx_xdp_raw_data_stream<DR: DeserializeOwned + Send + 'static>(
-    end_point: &str,
-    request: WsRequest,
-) -> Result<Pin<Box<dyn Stream<Item = Result<DR, eyre::Error>> + Send>>, eyre::Error> {
-    let channel_count = request.args.len();
-
-    assert_ne!(
-        channel_count, 0,
-        "At least one channel must be specified for subscription"
-    );
-
-    let uri = Uri::from_str(end_point)?;
-    let stream = XdpTcpStream::connect((uri.host().unwrap(), uri.port_u16().unwrap())).await?;
-
-    let (mut client, upgrade_resp) = tokio_websockets::ClientBuilder::from_uri(uri)
-        .connect_on(stream)
-        .await?;
-
-    ensure!(
-        upgrade_resp.status() == StatusCode::SWITCHING_PROTOCOLS,
-        "WebSocket connection failed: {}",
-        upgrade_resp.status(),
-    );
-
-    client
-        .send(Message::text(simd_json::serde::to_string(&request)?))
-        .await?;
-
-    // Each channel subscription will get a response.
-    for _ in 0..channel_count {
-        // Expect a response like this:
-        // {
-        //   "event": "subscribe",
-        //   "arg": {
-        //     "channel": "trades",
-        //     "instId": "BTC-USDT"
-        //   },
-        //   "id": "user_sub_01"
-        // }
-        let mut resp = client
-            .next()
-            .await
-            .wrap_err("Failed to subscribe")??
-            .as_payload()
-            .to_vec();
-        let resp = simd_json::from_slice::<WsResponse>(&mut resp)?;
-        ensure!(
-            resp.event == WsOperation::Subscribe,
-            "Failed to subscribe with response:\n {resp:?}",
-        );
-    }
-
-    let stream = stream! {
-        while let Some(msg) = client.next().await {
-            let msg = msg?;
-            match simd_json::from_slice::<DR>(&mut msg.as_payload().to_vec()) {
-                Ok(resp) => yield Ok(resp),
-                Err(e) => yield Err(e.into()),
-
-            }
-        }
-    };
-
-    Ok(Box::pin(stream))
 }
 
 #[cfg(test)]

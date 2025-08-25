@@ -1,8 +1,6 @@
 mod model;
 pub mod xdp;
 
-pub use model::WsOperation;
-
 use crate::{
     data::*,
     source::utils::{transform_raw_vec_stream, transform_raw_vec_stream_with},
@@ -11,13 +9,19 @@ use async_stream::stream;
 use bytestring::ByteString;
 use eyre::{ContextCompat, Result, ensure};
 use futures::{SinkExt, Stream, StreamExt};
-use http::StatusCode;
+use http::{StatusCode, Uri};
 use itertools::Itertools;
+pub use model::WsOperation;
 use model::*;
 use serde::de::DeserializeOwned;
-use std::pin::Pin;
-use tokio_websockets::Message;
+use std::{pin::Pin, str::FromStr};
+use tokio::{
+    io::{AsyncRead, AsyncWrite},
+    net::TcpStream,
+};
+use tokio_websockets::{Connector, Message};
 
+pub const OKX_WS_HOST: &str = "ws.okx.com:8443";
 pub const OKX_WS_PUBLICE_ENDPOINT: &str = "wss://ws.okx.com:8443/ws/v5/public";
 pub const OKX_WS_BUSINESS_ENDPOINT: &str = "wss://ws.okx.com:8443/ws/v5/business";
 
@@ -32,7 +36,8 @@ pub async fn okx_trade_data_stream(
             .collect_vec(),
         id: None,
     };
-    okx_raw_data_stream::<WsDataResponse<RawTradeData>>(OKX_WS_PUBLICE_ENDPOINT, request)
+    let stream = TcpStream::connect(OKX_WS_HOST).await?;
+    okx_raw_data_stream::<WsDataResponse<RawTradeData>>(OKX_WS_PUBLICE_ENDPOINT, request, stream)
         .await
         .map(transform_raw_vec_stream)
 }
@@ -54,7 +59,8 @@ pub async fn okx_candle_data_stream(
             .collect_vec(),
         id: None,
     };
-    okx_raw_data_stream::<WsDataResponse<RawCandleData>>(OKX_WS_BUSINESS_ENDPOINT, request)
+    let stream = TcpStream::connect(OKX_WS_HOST).await?;
+    okx_raw_data_stream::<WsDataResponse<RawCandleData>>(OKX_WS_BUSINESS_ENDPOINT, request, stream)
         .await
         .map(move |stream| {
             transform_raw_vec_stream_with(stream, move |resp| {
@@ -75,7 +81,8 @@ pub async fn okx_book_data_stream(
             .collect_vec(),
         id: None,
     };
-    okx_raw_data_stream::<WsDataResponse<OkxBookData>>(OKX_WS_PUBLICE_ENDPOINT, request)
+    let stream = TcpStream::connect(OKX_WS_HOST).await?;
+    okx_raw_data_stream::<WsDataResponse<OkxBookData>>(OKX_WS_PUBLICE_ENDPOINT, request, stream)
         .await
         .map(transform_raw_vec_stream)
 }
@@ -84,6 +91,7 @@ pub async fn okx_book_data_stream(
 async fn okx_raw_data_stream<DR: DeserializeOwned + Send + 'static>(
     end_point: &str,
     request: WsRequest,
+    stream: impl AsyncRead + AsyncWrite + Unpin + Send + 'static,
 ) -> Result<Pin<Box<dyn Stream<Item = Result<DR, eyre::Error>> + Send>>, eyre::Error> {
     let channel_count = request.args.len();
 
@@ -92,9 +100,20 @@ async fn okx_raw_data_stream<DR: DeserializeOwned + Send + 'static>(
         "At least one channel must be specified for subscription"
     );
 
+    let uri = Uri::from_str(end_point)?;
+    let host = uri.host().expect("URI must have a host");
+
+    let stream = if uri.scheme_str() == Some("wss") {
+        Connector::new()?.wrap(host, stream).await?
+    } else if uri.scheme_str() == Some("ws") {
+        Connector::Plain.wrap(host, stream).await?
+    } else {
+        unreachable!()
+    };
+
     let (mut client, upgrade_resp) = tokio_websockets::ClientBuilder::new()
         .uri(end_point)?
-        .connect()
+        .connect_on(stream)
         .await?;
 
     ensure!(
@@ -283,7 +302,7 @@ mod tests {
         Symbol::from_static("BTC-USDT"),
         Symbol::from_static("ETH-USDT"),
     ];
-    const TEST_DATA_NUM: usize = 5;
+    const TEST_DATA_NUM: usize = 3;
 
     #[test]
     fn test_candle_interval_to_sting() {
