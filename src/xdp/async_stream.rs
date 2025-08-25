@@ -101,14 +101,6 @@ impl AsyncWrite for XdpTcpStream {
     ) -> std::task::Poll<io::Result<usize>> {
         let mut reactor = global_reactor();
 
-        println!(
-            "debug0: send_queue={}",
-            reactor
-                .sockets
-                .get_mut::<TcpSocket>(self.handle)
-                .send_queue()
-        );
-
         let socket = reactor.sockets.get_mut::<TcpSocket>(self.handle);
 
         if !socket.may_send() {
