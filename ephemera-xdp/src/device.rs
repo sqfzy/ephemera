@@ -1,9 +1,9 @@
-use eyre::{ContextCompat, Result};
 use smoltcp::{
     phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken},
     time::Instant,
 };
 use std::{
+    error::Error,
     fmt::Debug,
     io,
     num::NonZeroU32,
@@ -26,7 +26,7 @@ pub(crate) struct XdpDevice<const FC: usize = 1024> {
 }
 
 impl<const FC: usize> XdpDevice<FC> {
-    pub(crate) fn new(if_name: &str) -> Result<Self> {
+    pub(crate) fn new(if_name: &str) -> Result<Self, Box<dyn Error>> {
         // PERF:
         let sk_conf = SocketConfig::builder()
             // .xdp_flags(XdpFlags::XDP_FLAGS_SKB_MODE) // 使用 SKB 模式
@@ -36,7 +36,10 @@ impl<const FC: usize> XdpDevice<FC> {
         Self::new_with_config(if_name, sk_conf)
     }
 
-    pub(crate) fn new_with_config(if_name: &str, sk_conf: SocketConfig) -> Result<Self> {
+    pub(crate) fn new_with_config(
+        if_name: &str,
+        sk_conf: SocketConfig,
+    ) -> Result<Self, Box<dyn Error>> {
         // INFO: 目前XDP Device 只实现了单个网卡队列的处理逻辑，并指定处理的队列ID为0
         const QUEUE_ID: u32 = 0;
 
@@ -46,7 +49,7 @@ impl<const FC: usize> XdpDevice<FC> {
         // PERF: huge page
         let (umem, descs) = Umem::new(
             UmemConfig::default(),
-            NonZeroU32::new(frame_count).wrap_err("FRAME_COUNT must be non-zero")?,
+            NonZeroU32::new(frame_count).expect("FRAME_COUNT must be non-zero"),
             false,
         )?;
         let rx_fds: [FrameDesc; FC] = descs[..FC].try_into().unwrap();
@@ -587,11 +590,10 @@ fn advance_get_mut<T>(len: usize, pos1: usize, pos2: usize, arr: &mut [T]) -> (&
 }
 
 #[cfg(test)]
-#[serial_test::serial(xdp)]
+#[serial_test::serial]
 mod tests {
     use super::*;
     use crate::test_utils::*;
-    use crate::xdp::test_utils::*;
     use smoltcp::{
         phy::{Device, RxToken, TxToken},
         time::Instant,
@@ -723,7 +725,7 @@ mod tests {
         let writer = &mut device1.writer;
         let reader = &mut device2.reader;
 
-        let n = FRAME_COUNT - 1;
+        let n = FRAME_COUNT * 2;
         for i in 1..=n {
             let msg = [i as u8; 64];
 

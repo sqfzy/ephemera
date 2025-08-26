@@ -1,4 +1,4 @@
-use crate::xdp::reactor::global_reactor;
+use crate::reactor::global_reactor;
 use portpicker::pick_unused_port;
 use smoltcp::{
     iface::SocketHandle,
@@ -26,7 +26,7 @@ impl XdpTcpStream {
             let mut reactor = global_reactor();
 
             while let Some(addr) = addrs.next() {
-                reactor.bpf.add_allowed_ip(addr.ip()).map_err(|e| {
+                reactor.bpf.add_allowed_src_ip(addr.ip()).map_err(|e| {
                     io::Error::other(format!("Failed to add {addr} to allowed IPs: {e}"))
                 })?;
 
@@ -157,13 +157,12 @@ impl AsyncWrite for XdpTcpStream {
 }
 
 #[cfg(test)]
-#[serial_test::serial(xdp)]
+#[serial_test::serial]
 mod tests {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use crate::xdp::test_utils::*;
     use super::*;
     use crate::test_utils::*;
     use std::sync::{Arc, Mutex};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     #[tokio::test]
     async fn test_connect() {
@@ -218,10 +217,13 @@ mod tests {
             read_with_reactor(&mut stream, &mut buf, reactor1.clone())
                 .await
                 .unwrap();
+            assert_eq!(&buf, &msg);
 
             read_with_reactor(&mut stream, &mut buf, reactor1.clone())
                 .await
                 .unwrap();
+            assert_eq!(&buf, &msg);
+
             read_with_reactor(&mut stream, &mut buf, reactor1.clone())
                 .await
                 .unwrap();
@@ -239,8 +241,6 @@ mod tests {
             .unwrap();
 
         stream.write_all(msg).await.unwrap();
-        // stream.flush().await.unwrap();
-
         stream.write_all(msg).await.unwrap();
         stream.write_all(msg).await.unwrap();
         stream.flush().await.unwrap();

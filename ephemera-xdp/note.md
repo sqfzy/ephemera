@@ -38,3 +38,11 @@ while socket.send_queue() != 0 {
 会卡住，可能是注册后没有wakeup
 
 xdp okx有时候会卡在sending SYN，发现没有成功添加到白名单
+
+提供setup_xdp
+
+# 修改了libbpf-sys
+build.rs
+`# WERROR := -Werror`
+
+可以试试libxdp提供的程序

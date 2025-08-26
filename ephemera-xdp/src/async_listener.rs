@@ -1,4 +1,4 @@
-use crate::xdp::{async_stream::XdpTcpStream, reactor::global_reactor};
+use crate::{async_stream::XdpTcpStream, reactor::global_reactor};
 use smoltcp::{
     iface::SocketHandle,
     socket::tcp::{Socket as TcpSocket, SocketBuffer, State},
@@ -31,6 +31,11 @@ impl XdpTcpListener {
 
         let mut reactor = global_reactor();
         let handle = reactor.sockets.add(socket);
+
+        reactor
+            .bpf
+            .add_allowed_dst_port(addr.port())
+            .map_err(io::Error::other)?;
 
         Ok(Self { handle })
     }
@@ -70,10 +75,10 @@ impl XdpTcpListener {
 }
 
 #[cfg(test)]
+#[serial_test::serial]
 mod tests {
     use super::*;
     use crate::test_utils::*;
-    use crate::xdp::test_utils::*;
     use std::sync::{Arc, Mutex};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 

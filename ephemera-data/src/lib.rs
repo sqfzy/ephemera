@@ -1,8 +1,7 @@
-use crate::{Symbol, Timestamp};
 use rust_decimal::Decimal;
-use serde::Deserialize;
-use strum::EnumDiscriminants;
 
+pub type Timestamp = u64;
+pub type Symbol = bytestring::ByteString;
 pub type IntervalSc = u64;
 
 pub const CANDLE_INTERVAL_1S: IntervalSc = 1;
@@ -23,8 +22,8 @@ pub const CANDLE_INTERVAL_1W: IntervalSc = 604800;
 pub const CANDLE_INTERVAL_1MON: IntervalSc = 2592000;
 pub const CANDLE_INTERVAL_3MON: IntervalSc = 7776000;
 
-#[derive(Debug, EnumDiscriminants)]
-#[strum_discriminants(vis(pub), name(MarketDataType), derive(Deserialize))]
+#[derive(Debug, strum::EnumDiscriminants)]
+#[strum_discriminants(vis(pub), name(MarketDataType))]
 pub enum MarketData {
     Trade(TradeData),
     Candle(CandleData),
@@ -98,14 +97,14 @@ pub enum Side {
     Sell,
 }
 
-impl TryFrom<&str> for Side {
-    type Error = eyre::Report;
+impl std::str::FromStr for Side {
+    type Err = Box<dyn std::error::Error>;
 
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
             "buy" => Ok(Side::Buy),
             "sell" => Ok(Side::Sell),
-            _ => eyre::bail!("Invalid order side: '{}'", value),
+            _ => Err(format!("Invalid order side: '{s}'").into()),
         }
     }
 }

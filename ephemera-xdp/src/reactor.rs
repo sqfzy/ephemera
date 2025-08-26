@@ -1,12 +1,9 @@
-#![allow(dead_code)]
-
-use crate::{config::EphemaraConfig, xdp::bpf::xdp_ip_filter::XdpIpFilter, xdp::device::XdpDevice};
+use crate::{bpf::xdp_ip_filter::XdpFilter, device::XdpDevice};
 use libbpf_rs::{MapCore, MapFlags};
 use smoltcp::{
     iface::{Interface, PollResult, SocketSet},
-    socket::tcp::{Socket as TcpSocket, SocketBuffer},
     time::{Duration, Instant},
-    wire::{EthernetAddress, IpAddress, IpCidr},
+    wire::{EthernetAddress, IpCidr},
 };
 use std::{
     io,
@@ -29,12 +26,14 @@ pub(crate) fn global_reactor() -> MutexGuard<'static, XdpReactor> {
 // Reactor poll in background thread, so user should just care the state change of sockets.
 pub(crate) fn run_global_reactor_background() {
     std::thread::spawn(move || {
+        let timeout = Duration::from_millis(10);
+
         loop {
             let (fd, delay) = {
                 let mut reactor_guard = global_reactor();
                 let reactor = &mut *reactor_guard;
 
-                reactor.poll_and_flush().unwrap();
+                while reactor.poll_and_flush().unwrap() == PollResult::SocketStateChanged {}
 
                 (
                     reactor.device.as_raw_fd(),
@@ -42,53 +41,52 @@ pub(crate) fn run_global_reactor_background() {
                 )
             };
 
-            smoltcp::phy::wait(fd, delay).unwrap();
+            smoltcp::phy::wait(fd, delay.or(Some(timeout))).unwrap();
         }
     });
 }
 
 fn create_global_reactor() -> XdpReactor {
-    let EphemaraConfig {
-        xdp_if_name,
-        xdp_mac,
-        xdp_ip,
-        xdp_skb_mod,
-        xdp_acceptable_ips: xdp_allowed_ips,
-        gateway_ip,
-        ..
-    } = EphemaraConfig::load().unwrap();
+    let iface = netdev::get_default_interface().expect("No network interfaces found");
+    let gateway = netdev::get_default_gateway().expect("No default gateway found");
 
-    let xdp_mac = xdp_mac
-        .parse::<EthernetAddress>()
-        .expect("Failed to parse MAC address: {xdp_mac}");
+    let xdp_if_name = &iface.name;
+    let xdp_if_index = iface.index;
+    let xdp_mac = iface
+        .mac_addr
+        .expect("No MAC address found for the interface");
+    let xdp_ip = iface
+        .ip_addrs()
+        .into_iter()
+        .next()
+        .expect("No IP address found for the interface");
+    let xdp_gateway_ipv4 = gateway
+        .ipv4
+        .into_iter()
+        .next()
+        .expect("No gateway IPv4 address found");
 
     // setup BPF
-    let if_index = nix::net::if_::if_nametoindex(xdp_if_name.as_str()).unwrap() as i32;
-    let flags = if xdp_skb_mod {
-        libbpf_rs::XdpFlags::SKB_MODE
-    } else {
-        libbpf_rs::XdpFlags::NONE
-    };
-    let bpf = XdpIpFilter::new(if_index, flags).unwrap();
+    let bpf = XdpFilter::new(xdp_if_index as i32).expect("Failed to load BPF program.");
 
     // setup device
-    let mut device = XdpDevice::new(&xdp_if_name).unwrap();
+    let mut device = XdpDevice::new(xdp_if_name).expect("Failed to create XDP device.");
 
     // setup interface
     let mut iface = Interface::new(
-        smoltcp::iface::Config::new(xdp_mac.into()),
+        smoltcp::iface::Config::new(EthernetAddress(xdp_mac.octets()).into()),
         &mut device,
         Instant::now(),
     );
     iface.update_ip_addrs(|ip_addrs| {
         ip_addrs
-            .push(IpCidr::new(IpAddress::from(xdp_ip), 24))
+            .push(IpCidr::new(xdp_ip.into(), 24))
             .expect("Address is full.");
     });
     iface
         .routes_mut()
-        .add_default_ipv4_route(gateway_ip)
-        .unwrap();
+        .add_default_ipv4_route(xdp_gateway_ipv4)
+        .expect("Failed to add default route.");
 
     let xsk_fd = device.as_raw_fd();
     bpf.skel
@@ -99,10 +97,10 @@ fn create_global_reactor() -> XdpReactor {
             &xsk_fd.to_le_bytes(),
             MapFlags::ANY,
         )
-        .unwrap();
-    for ip in xdp_allowed_ips {
-        bpf.add_allowed_ip(ip).unwrap();
-    }
+        .expect("Failed to update xsks_map.");
+    // for ip in xdp_allowed_ips {
+    //     bpf.add_allowed_ip(ip).unwrap();
+    // }
 
     XdpReactor {
         iface,
@@ -116,7 +114,7 @@ pub(crate) struct XdpReactor {
     pub(crate) iface: Interface,
     pub(crate) device: XdpDevice,
     pub(crate) sockets: SocketSet<'static>,
-    pub(crate) bpf: XdpIpFilter,
+    pub(crate) bpf: XdpFilter,
 }
 
 impl XdpReactor {
@@ -129,15 +127,14 @@ impl XdpReactor {
     }
 
     pub(crate) fn poll_and_flush(&mut self) -> io::Result<PollResult> {
-        let now = Instant::now();
-
-        let res = self.iface.poll(now, &mut self.device, &mut self.sockets);
+        let res = self.poll();
 
         self.device.flush()?;
 
         Ok(res)
     }
 
+    #[cfg(test)]
     pub(crate) fn poll_timeout(&mut self, timeout: Option<Duration>) -> io::Result<PollResult> {
         let now = Instant::now();
 
@@ -149,28 +146,31 @@ impl XdpReactor {
         Ok(res)
     }
 
-    pub(crate) fn poll_timeout_and_flush(
-        &mut self,
-        timeout: Option<Duration>,
-    ) -> io::Result<PollResult> {
-        let now = Instant::now();
+    // pub(crate) fn poll_timeout_and_flush(
+    //     &mut self,
+    //     timeout: Option<Duration>,
+    // ) -> io::Result<PollResult> {
+    //     let now = Instant::now();
+    //
+    //     let delay = self.iface.poll_delay(now, &self.sockets).or(timeout);
+    //     smoltcp::phy::wait(self.device.as_raw_fd(), delay)?;
+    //
+    //     let res = self.iface.poll(now, &mut self.device, &mut self.sockets);
+    //
+    //     // PERF:
+    //     self.device.flush()?;
+    //
+    //     Ok(res)
+    // }
 
-        let delay = self.iface.poll_delay(now, &self.sockets).or(timeout);
-        smoltcp::phy::wait(self.device.as_raw_fd(), delay)?;
+    // pub(crate) fn flush(&mut self) -> io::Result<usize> {
+    //     self.device.flush()
+    // }
 
-        let res = self.iface.poll(now, &mut self.device, &mut self.sockets);
-
-        // PERF:
-        self.device.flush()?;
-
-        Ok(res)
-    }
-
-    pub(crate) fn flush(&mut self) -> io::Result<usize> {
-        self.device.flush()
-    }
-
+    #[cfg(test)]
     pub(crate) fn add_tcp_socket(&mut self) -> smoltcp::iface::SocketHandle {
+        use smoltcp::socket::tcp::{Socket as TcpSocket, SocketBuffer};
+
         let socket = TcpSocket::new(
             SocketBuffer::new(vec![0; 4096]),
             SocketBuffer::new(vec![0; 4096]),
@@ -178,19 +178,18 @@ impl XdpReactor {
         self.sockets.add(socket)
     }
 
-    pub(crate) fn waiter(&mut self) -> impl FnOnce() -> io::Result<()> {
-        let delay = self.iface.poll_delay(Instant::now(), &self.sockets);
-        let fd = self.device.as_raw_fd();
-        move || smoltcp::phy::wait(fd, delay)
-    }
+    // pub(crate) fn waiter(&mut self) -> impl FnOnce() -> io::Result<()> {
+    //     let delay = self.iface.poll_delay(Instant::now(), &self.sockets);
+    //     let fd = self.device.as_raw_fd();
+    //     move || smoltcp::phy::wait(fd, delay)
+    // }
 }
 
 #[cfg(test)]
-#[serial_test::serial(xdp)]
+#[serial_test::serial]
 mod tests {
     use super::*;
     use crate::test_utils::*;
-    use crate::xdp::test_utils::*;
     use smoltcp::{
         socket::tcp::{Socket as TcpSocket, State},
         wire::IpEndpoint,
@@ -269,6 +268,16 @@ mod tests {
             .get_mut::<TcpSocket>(handle1)
             .send_slice(msg)
             .unwrap();
+        reactor1
+            .sockets
+            .get_mut::<TcpSocket>(handle1)
+            .send_slice(msg)
+            .unwrap();
+        reactor1
+            .sockets
+            .get_mut::<TcpSocket>(handle1)
+            .send_slice(msg)
+            .unwrap();
         assert_eq!(
             reactor1.poll_and_flush().unwrap(),
             PollResult::SocketStateChanged
@@ -287,7 +296,20 @@ mod tests {
             .get_mut::<TcpSocket>(handle2)
             .recv_slice(&mut buf)
             .unwrap();
+        assert_eq!(buf, msg);
 
+        reactor2
+            .sockets
+            .get_mut::<TcpSocket>(handle2)
+            .recv_slice(&mut buf)
+            .unwrap();
+        assert_eq!(buf, msg);
+
+        reactor2
+            .sockets
+            .get_mut::<TcpSocket>(handle2)
+            .recv_slice(&mut buf)
+            .unwrap();
         assert_eq!(buf, msg);
     }
 }

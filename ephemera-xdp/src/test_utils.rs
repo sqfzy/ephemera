@@ -1,7 +1,7 @@
-use crate::xdp::{
+use crate::{
     async_listener::XdpTcpListener,
     async_stream::XdpTcpStream,
-    bpf::xdp_ip_filter::XdpIpFilter,
+    bpf::xdp_ip_filter::XdpFilter,
     device::XdpDevice,
     reactor::{XdpReactor, global_reactor},
 };
@@ -19,7 +19,7 @@ use std::{
     net::{IpAddr, SocketAddr, ToSocketAddrs},
     os::fd::AsRawFd,
     str::FromStr,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     task::Poll,
 };
 
@@ -31,11 +31,23 @@ pub(crate) const INTERFACE_NAME2: &str = "test_iface2";
 pub(crate) const INTERFACE_MAC2: &str = "ea:d8:f6:0e:76:01";
 pub(crate) const INTERFACE_IP2: &str = "192.168.2.10";
 
+pub fn setup() {
+    static START: OnceLock<()> = OnceLock::new();
+
+    START.get_or_init(|| {
+        let level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
+
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::from_str(&level).unwrap())
+            .init();
+    });
+}
+
 pub(crate) fn create_reactor1() -> XdpReactor {
     let mac = INTERFACE_MAC1.parse::<EthernetAddress>().unwrap();
 
-    let if_index = nix::net::if_::if_nametoindex(INTERFACE_NAME1).unwrap() as i32;
-    let bpf = XdpIpFilter::new(if_index, libbpf_rs::XdpFlags::SKB_MODE).unwrap();
+    let if_index = find_index_by_name(INTERFACE_NAME1).unwrap() as i32;
+    let bpf = XdpFilter::new(if_index).unwrap();
 
     let mut device = XdpDevice::new(INTERFACE_NAME1).unwrap();
     let mut iface = Interface::new(
@@ -59,10 +71,10 @@ pub(crate) fn create_reactor1() -> XdpReactor {
             MapFlags::ANY,
         )
         .unwrap();
-    bpf.add_allowed_ip(INTERFACE_IP1.parse::<IpAddr>().unwrap())
-        .unwrap();
-    bpf.add_allowed_ip(INTERFACE_IP2.parse::<IpAddr>().unwrap())
-        .unwrap();
+    // bpf.add_allowed_src_ip(INTERFACE_IP1.parse::<IpAddr>().unwrap())
+    //     .unwrap();
+    // bpf.add_allowed_src_ip(INTERFACE_IP2.parse::<IpAddr>().unwrap())
+    //     .unwrap();
 
     XdpReactor {
         iface,
@@ -75,8 +87,8 @@ pub(crate) fn create_reactor1() -> XdpReactor {
 pub(crate) fn create_reactor2() -> XdpReactor {
     let mac = INTERFACE_MAC2.parse::<EthernetAddress>().unwrap();
 
-    let if_index = nix::net::if_::if_nametoindex(INTERFACE_NAME2).unwrap() as i32;
-    let bpf = XdpIpFilter::new(if_index, libbpf_rs::XdpFlags::SKB_MODE).unwrap();
+    let if_index = find_index_by_name(INTERFACE_NAME2).unwrap() as i32;
+    let bpf = XdpFilter::new(if_index).unwrap();
 
     let mut device = XdpDevice::new(INTERFACE_NAME2).unwrap();
     let mut iface = Interface::new(
@@ -100,10 +112,10 @@ pub(crate) fn create_reactor2() -> XdpReactor {
             MapFlags::ANY,
         )
         .unwrap();
-    bpf.add_allowed_ip(INTERFACE_IP1.parse::<IpAddr>().unwrap())
-        .unwrap();
-    bpf.add_allowed_ip(INTERFACE_IP2.parse::<IpAddr>().unwrap())
-        .unwrap();
+    // bpf.add_allowed_src_ip(INTERFACE_IP1.parse::<IpAddr>().unwrap())
+    //     .unwrap();
+    // bpf.add_allowed_src_ip(INTERFACE_IP2.parse::<IpAddr>().unwrap())
+    //     .unwrap();
 
     XdpReactor {
         iface,
@@ -111,6 +123,16 @@ pub(crate) fn create_reactor2() -> XdpReactor {
         sockets: SocketSet::new(vec![]),
         bpf,
     }
+}
+
+pub(crate) fn find_index_by_name(name: &str) -> Option<u32> {
+    let ifaces = netdev::get_interfaces();
+    for iface in ifaces {
+        if iface.name == name {
+            return Some(iface.index);
+        }
+    }
+    None
 }
 
 pub(crate) fn bind_with_reactor(
@@ -131,6 +153,11 @@ pub(crate) fn bind_with_reactor(
 
     let mut reactor = reactor.lock().unwrap();
     let handle = reactor.sockets.add(socket);
+
+    reactor
+        .bpf
+        .add_allowed_dst_port(addr.port())
+        .map_err(io::Error::other)?;
 
     Ok(XdpTcpListener { handle })
 }
@@ -188,7 +215,7 @@ pub(crate) async fn connect_with_reactor(
         let mut reactor = reactor.lock().unwrap();
 
         while let Some(addr) = addrs.next() {
-            reactor.bpf.add_allowed_ip(addr.ip()).map_err(|e| {
+            reactor.bpf.add_allowed_src_ip(addr.ip()).map_err(|e| {
                 io::Error::other(format!("Failed to add {addr} to allowed IPs: {e}"))
             })?;
 
