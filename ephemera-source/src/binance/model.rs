@@ -105,7 +105,7 @@ pub(super) struct WsDataResponse<RD> {
 #[serde(rename_all = "camelCase")]
 pub(super) struct RawTradeData {
     #[serde(rename = "E")]
-    pub(super) event_time: Timestamp,
+    pub(super) event_time: TimestampMs,
     #[serde(rename = "s")]
     pub(super) symbol: ByteString,
     #[serde(rename = "t")]
@@ -120,7 +120,7 @@ pub(super) struct RawTradeData {
     pub(super) quantity: Decimal,
 
     #[serde(rename = "T")]
-    pub(super) trade_time: Timestamp,
+    pub(super) trade_time: TimestampMs,
     #[serde(rename = "m")]
     pub(super) is_buy: bool,
     #[serde(rename = "M")]
@@ -137,12 +137,11 @@ impl TryFrom<WsDataResponse<RawTradeData>> for TradeData {
             Side::Sell
         };
         Ok(Self {
-            trade_id: value.data.trade_id,
             symbol: split_symbol_and_channel(value.stream)?.0,
             price: value.data.price,
             quantity: value.data.quantity,
             side,
-            timestamp: value.data.trade_time,
+            timestamp_ms: value.data.trade_time,
         })
     }
 }
@@ -150,7 +149,7 @@ impl TryFrom<WsDataResponse<RawTradeData>> for TradeData {
 #[derive(Debug, Deserialize)]
 pub(super) struct RawCandleData {
     #[serde(rename = "E")]
-    pub(super) event_time: Timestamp,
+    pub(super) event_time: TimestampMs,
     #[serde(rename = "s")]
     pub(super) symbol: ByteString,
     #[serde(rename = "k")]
@@ -165,7 +164,7 @@ impl TryFrom<WsDataResponse<RawCandleData>> for CandleData {
         Ok(Self {
             symbol: split_symbol_and_channel(value.stream)?.0,
             interval_sc: kline.interval,
-            open_timestamp: kline.start_time,
+            open_timestamp_ms: kline.start_time,
             open: kline.open,
             high: kline.high,
             low: kline.low,
@@ -179,9 +178,9 @@ impl TryFrom<WsDataResponse<RawCandleData>> for CandleData {
 #[derive(Debug, Deserialize)]
 pub(super) struct RawCandleDataInner {
     #[serde(rename = "t")]
-    pub(super) start_time: Timestamp,
+    pub(super) start_time: TimestampMs,
     #[serde(rename = "T")]
-    pub(super) close_time: Timestamp,
+    pub(super) close_time: TimestampMs,
     #[serde(rename = "s")]
     pub(super) symbol: ByteString,
     #[serde(rename = "i", deserialize_with = "deserialize_interval")]
@@ -236,7 +235,7 @@ pub(super) struct RawCandleDataInner {
 #[derive(Debug, Deserialize)]
 pub(super) struct RawBookData {
     #[serde(rename = "E")]
-    pub(super) event_time: Timestamp,
+    pub(super) event_time: TimestampMs,
     #[serde(rename = "s")]
     pub(super) symbol: ByteString,
     #[serde(rename = "U")]

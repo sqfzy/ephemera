@@ -19,9 +19,9 @@ pub(super) struct HttpCandleDataRequest {
     /// UTC时间开盘价k线：[/6Hutc/12Hutc/1Dutc/2Dutc/3Dutc/1Wutc/1Mutc/3Mutc]
     pub(super) bar: Option<ByteString>,
     /// 请求此时间戳之前（更旧的数据）的分页内容，传的值为对应接口的ts
-    pub(super) after: Option<Timestamp>,
+    pub(super) after: Option<TimestampMs>,
     /// 请求此时间戳之后（更新的数据）的分页内容，传的值为对应接口的ts, 单独使用时，会返回最新的数据。
-    pub(super) before: Option<Timestamp>,
+    pub(super) before: Option<TimestampMs>,
     /// 分页返回的结果集数量，最大为300，不填默认返回100条
     pub(super) limit: Option<usize>,
 }
@@ -87,19 +87,17 @@ impl TryFrom<WsDataResponse<RawTradeData>> for Vec<TradeData> {
             .data
             .into_iter()
             .map(|trade| {
-                let trade_id = trade.trade_id.parse::<u64>()?;
                 let timestamp = trade.ts.parse()?;
                 let price = trade.px.parse::<Decimal>()?;
                 let quantity = trade.sz.parse::<Decimal>()?;
                 let side = Side::from_str(trade.side.as_ref())?;
 
                 Ok(TradeData {
-                    trade_id,
                     symbol: value.arg.inst_id.clone(),
                     price,
                     quantity,
                     side,
-                    timestamp,
+                    timestamp_ms: timestamp,
                 })
             })
             .try_collect()

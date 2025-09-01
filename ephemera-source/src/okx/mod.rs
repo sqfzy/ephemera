@@ -1,5 +1,8 @@
-mod model;
 pub mod xdp;
+
+mod model;
+
+pub use model::WsOperation;
 
 use crate::utils::{transform_raw_vec_stream, transform_raw_vec_stream_with};
 use async_stream::stream;
@@ -9,7 +12,6 @@ use eyre::{ContextCompat, Result, ensure};
 use futures::{SinkExt, Stream, StreamExt};
 use http::{StatusCode, Uri};
 use itertools::Itertools;
-pub use model::WsOperation;
 use model::*;
 use serde::de::DeserializeOwned;
 use std::{pin::Pin, str::FromStr};
@@ -174,6 +176,7 @@ fn convert_okx_candle_datas(
 ) -> Result<Vec<CandleData>> {
     resp.data
         .into_iter()
+        .take_while(|candle| matches!(candle.8.as_ref(), "1")) // 只取已完成的K线
         .map(|candle| {
             let open_timestamp = candle.0.parse()?;
             let open = candle.1.parse()?;
@@ -185,7 +188,7 @@ fn convert_okx_candle_datas(
             Ok(CandleData {
                 symbol: resp.arg.inst_id.clone(),
                 interval_sc,
-                open_timestamp,
+                open_timestamp_ms: open_timestamp,
                 open,
                 high,
                 low,
