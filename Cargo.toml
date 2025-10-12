@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = [ "ephemera-data", "ephemera-source","ephemera-xdp"]
+members = [ "ephemera-data", "ephemera-source", "ephemera-strategy", "ephemera-tui","ephemera-xdp"]
 
 [dependencies]

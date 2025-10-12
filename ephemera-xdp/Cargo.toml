@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 xsk-rs = { path = "./vendor/xsk-rs" }
-# xsk-rs = "0.7"
+# xsk-rs = "0.8"
 smoltcp = { version = "0.12", features = ["log"] }
 tokio = { version = "1", features = ["test-util", "io-util"] }
 itoa = "1.0.15"

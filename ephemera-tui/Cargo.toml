@@ -1,0 +1,17 @@
+[package]
+name = "ephemera-tui"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ephemera-data = { path = "../ephemera-data" }
+ephemera-source = { path = "../ephemera-source" }
+
+ratatui = "0.29"
+crossterm = "0.29"
+tokio = { version = "1.47", features = ["full"] }
+futures = "0.3"
+eyre = "0.6"
+chrono = "0.4"
+rust_decimal = "1.38.0"
+rand = "0.9"
