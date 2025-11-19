@@ -1,65 +1,100 @@
-use crate::reactor::global_reactor;
+use crate::reactor::{XdpReactor, global_reactor};
 use portpicker::pick_unused_port;
 use smoltcp::{
     iface::SocketHandle,
     socket::tcp::{Socket as TcpSocket, SocketBuffer, State as TcpState},
 };
-use std::{future::poll_fn, io, net::ToSocketAddrs, task::Poll};
+use std::{
+    future::poll_fn,
+    io,
+    net::ToSocketAddrs,
+    sync::{Arc, Mutex},
+    task::Poll,
+};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 pub struct XdpTcpStream {
     pub(crate) handle: SocketHandle,
+    pub(crate) reactor: Arc<Mutex<XdpReactor>>,
 }
 
 impl XdpTcpStream {
+    /// Connect using the global reactor.
     pub async fn connect(addr: impl ToSocketAddrs) -> io::Result<XdpTcpStream> {
+        Self::connect_with_reactor(addr, global_reactor()).await
+    }
+
+    /// Connect using a specific reactor.
+    pub async fn connect_with_reactor(
+        addr: impl ToSocketAddrs,
+        reactor: Arc<Mutex<XdpReactor>>,
+    ) -> io::Result<XdpTcpStream> {
         let handle = {
             let mut socket = TcpSocket::new(
-                SocketBuffer::new(vec![0; 4096]),
-                SocketBuffer::new(vec![0; 4096]),
+                SocketBuffer::new(vec![0; 65535]),
+                SocketBuffer::new(vec![0; 65535]),
             );
 
             let mut addrs = addr.to_socket_addrs()?.peekable();
             let local_port = pick_unused_port().ok_or_else(|| {
                 io::Error::other("Failed to pick an unused port for TCP connection")
             })?;
-            let mut reactor = global_reactor();
+
+            let mut reactor_guard = reactor.lock().unwrap();
 
             while let Some(addr) = addrs.next() {
-                reactor.bpf.add_allowed_src_ip(addr.ip()).map_err(|e| {
-                    io::Error::other(format!("Failed to add {addr} to allowed IPs: {e}"))
-                })?;
+                reactor_guard
+                    .bpf
+                    .add_allowed_src_ip(addr.ip())
+                    .map_err(|e| {
+                        io::Error::other(format!("Failed to add {addr} to allowed IPs: {e}"))
+                    })?;
 
-                match socket.connect(reactor.iface.context(), addr, local_port) {
+                match socket.connect(reactor_guard.iface.context(), addr, local_port) {
                     Ok(_) => break,
                     Err(_) if addrs.peek().is_some() => continue,
-                    // 最后的地址也连接失败
                     e => e.map_err(|e| {
                         io::Error::other(format!("Failed to connect to {addr}: {e}"))
                     })?,
                 }
             }
 
-            reactor.sockets.add(socket)
+            reactor_guard.sockets.add(socket)
         };
 
         poll_fn(|cx| {
-            let mut reactor = global_reactor();
-            reactor.poll_and_flush()?;
+            let mut reactor_guard = reactor.lock().unwrap();
+            reactor_guard.poll_and_flush()?;
 
-            let socket = reactor.sockets.get_mut::<TcpSocket>(handle);
+            let socket = reactor_guard.sockets.get_mut::<TcpSocket>(handle);
 
             match socket.state() {
-                TcpState::SynSent => {
+                TcpState::Established => Poll::Ready(Ok(())),
+                TcpState::SynSent | TcpState::SynReceived => {
                     socket.register_send_waker(cx.waker());
                     Poll::Pending
                 }
-                _ => Poll::Ready(Ok::<_, io::Error>(())),
+                // 处理连接失败的情况
+                state if state == TcpState::Closed || state == TcpState::TimeWait => {
+                    Poll::Ready(Err(io::Error::other("Connection closed/failed")))
+                }
+                _ => {
+                    // 其他状态也等待
+                    socket.register_send_waker(cx.waker());
+                    Poll::Pending
+                }
             }
         })
         .await?;
 
-        Ok(Self { handle })
+        Ok(Self { handle, reactor })
+    }
+}
+
+impl Drop for XdpTcpStream {
+    fn drop(&mut self) {
+        let mut reactor = self.reactor.lock().unwrap();
+        reactor.sockets.remove(self.handle);
     }
 }
 
@@ -69,7 +104,7 @@ impl AsyncRead for XdpTcpStream {
         cx: &mut std::task::Context<'_>,
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> std::task::Poll<io::Result<()>> {
-        let mut reactor = global_reactor();
+        let mut reactor = self.reactor.lock().unwrap();
         reactor.poll();
 
         let socket = reactor.sockets.get_mut::<TcpSocket>(self.handle);
@@ -99,7 +134,7 @@ impl AsyncWrite for XdpTcpStream {
         cx: &mut std::task::Context<'_>,
         buf: &[u8],
     ) -> std::task::Poll<io::Result<usize>> {
-        let mut reactor = global_reactor();
+        let mut reactor = self.reactor.lock().unwrap();
 
         let socket = reactor.sockets.get_mut::<TcpSocket>(self.handle);
 
@@ -120,20 +155,14 @@ impl AsyncWrite for XdpTcpStream {
 
     fn poll_flush(
         self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
+        _cx: &mut std::task::Context<'_>,
     ) -> Poll<io::Result<()>> {
-        let mut reactor = global_reactor();
+        let mut reactor = self.reactor.lock().unwrap();
 
-        let socket = reactor.sockets.get_mut::<TcpSocket>(self.handle);
-        if socket.send_queue() != 0 {
+        let mut socket = reactor.sockets.get_mut::<TcpSocket>(self.handle);
+        while socket.send_queue() != 0 {
             reactor.poll_and_flush()?;
-        }
-
-        // 如果还有数据没发完（等待ACK或等待发送窗口），返回 Pending
-        let socket = reactor.sockets.get_mut::<TcpSocket>(self.handle);
-        if socket.send_queue() > 0 {
-            socket.register_send_waker(cx.waker());
-            return Poll::Pending;
+            socket = reactor.sockets.get_mut::<TcpSocket>(self.handle);
         }
 
         Poll::Ready(Ok(()))
@@ -146,7 +175,7 @@ impl AsyncWrite for XdpTcpStream {
         self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Result<(), io::Error>> {
-        let mut reactor = global_reactor();
+        let mut reactor = self.reactor.lock().unwrap();
         reactor.poll_and_flush()?;
 
         let socket = reactor.sockets.get_mut::<TcpSocket>(self.handle);
@@ -163,25 +192,11 @@ impl AsyncWrite for XdpTcpStream {
     }
 }
 
-// impl Drop for XdpTcpStream {
-//     fn drop(&mut self) {
-//         // 使用XdpTcpStream绑定的reactor，而不是global_reactor
-//         let mut reactor = global_reactor();
-//
-//         let socket = reactor.sockets.get_mut::<TcpSocket>(self.handle);
-//         if socket.is_open() {
-//             socket.close();
-//             // 移除 socket，释放资源
-//             reactor.sockets.remove(self.handle);
-//         }
-//     }
-// }
-
 #[cfg(test)]
 #[serial_test::serial]
 mod tests {
     use super::*;
-    use crate::test_utils::*;
+    use crate::{async_listener::XdpTcpListener, reactor::run_reactor_background, test_utils::*};
     use std::sync::{Arc, Mutex};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -190,24 +205,23 @@ mod tests {
         setup();
 
         let reactor1 = Arc::new(Mutex::new(create_reactor1()));
-        let reactor2 = create_reactor2();
+        let reactor2 = Arc::new(Mutex::new(create_reactor2()));
 
         run_reactor_background(reactor1.clone());
-        replace_global_reactor(reactor2);
+        run_reactor_background(reactor2.clone());
 
         let port = 12345;
 
         let mut listener =
-            bind_with_reactor(format!("{INTERFACE_IP1}:{port}"), reactor1.clone()).unwrap();
-        let handle = tokio::spawn(async move {
-            accept_with_reactor(&mut listener, reactor1.clone())
-                .await
+            XdpTcpListener::bind_with_reactor(format!("{INTERFACE_IP1}:{port}"), reactor1.clone())
                 .unwrap();
+        let handle = tokio::spawn(async move {
+            listener.accept().await.unwrap();
         });
 
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        XdpTcpStream::connect(format!("{INTERFACE_IP1}:{port}"))
+        XdpTcpStream::connect_with_reactor(format!("{INTERFACE_IP1}:{port}"), reactor2.clone())
             .await
             .unwrap();
 
@@ -219,49 +233,36 @@ mod tests {
         setup();
 
         let reactor1 = Arc::new(Mutex::new(create_reactor1()));
-        let reactor2 = create_reactor2();
+        let reactor2 = Arc::new(Mutex::new(create_reactor2()));
 
         run_reactor_background(reactor1.clone());
-        replace_global_reactor(reactor2);
+        run_reactor_background(reactor2.clone());
 
         let port = 12345;
         let msg = b"Hello";
 
         let mut listener =
-            bind_with_reactor(format!("{INTERFACE_IP1}:{port}"), reactor1.clone()).unwrap();
-        let handle = tokio::spawn(async move {
-            let (mut stream, _) = accept_with_reactor(&mut listener, reactor1.clone())
-                .await
+            XdpTcpListener::bind_with_reactor(format!("{INTERFACE_IP1}:{port}"), reactor1.clone())
                 .unwrap();
+        let handle = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
 
             let mut buf = vec![0_u8; msg.len()];
-            read_with_reactor(&mut stream, &mut buf, reactor1.clone())
-                .await
-                .unwrap();
+            stream.read_exact(&mut buf).await.unwrap();
+
             assert_eq!(&buf, &msg);
 
-            read_with_reactor(&mut stream, &mut buf, reactor1.clone())
-                .await
-                .unwrap();
-            assert_eq!(&buf, &msg);
-
-            read_with_reactor(&mut stream, &mut buf, reactor1.clone())
-                .await
-                .unwrap();
-            assert_eq!(&buf, &msg);
-
-            write_with_reactor(&mut stream, &buf, reactor1.clone())
-                .await
-                .unwrap();
+            stream.write_all(msg).await.unwrap();
+            stream.flush().await.unwrap();
         });
 
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        let mut stream = XdpTcpStream::connect(format!("{INTERFACE_IP1}:{port}"))
-            .await
-            .unwrap();
+        let mut stream =
+            XdpTcpStream::connect_with_reactor(format!("{INTERFACE_IP1}:{port}"), reactor2.clone())
+                .await
+                .unwrap();
 
-        stream.write_all(msg).await.unwrap();
         stream.write_all(msg).await.unwrap();
         stream.write_all(msg).await.unwrap();
         stream.flush().await.unwrap();

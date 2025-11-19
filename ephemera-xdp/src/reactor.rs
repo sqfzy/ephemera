@@ -8,36 +8,45 @@ use smoltcp::{
 use std::{
     io,
     os::fd::AsRawFd,
-    sync::{LazyLock, Mutex, MutexGuard},
+    sync::{Arc, LazyLock, Mutex},
 };
 
-pub(crate) static XDP_REACTOR: LazyLock<Mutex<XdpReactor>> = LazyLock::new(|| {
+pub(crate) static GLOBAL_XDP_REACTOR: LazyLock<Arc<Mutex<XdpReactor>>> = LazyLock::new(|| {
     let reactor = create_global_reactor();
+    let reactor = Arc::new(Mutex::new(reactor));
 
-    run_global_reactor_background();
+    // 启动全局后台线程
+    run_reactor_background(reactor.clone());
 
-    Mutex::new(reactor)
+    reactor
 });
 
-pub(crate) fn global_reactor() -> MutexGuard<'static, XdpReactor> {
-    XDP_REACTOR.lock().unwrap()
+pub(crate) fn global_reactor() -> Arc<Mutex<XdpReactor>> {
+    GLOBAL_XDP_REACTOR.clone()
 }
 
 // Reactor poll in background thread, so user should just care the state change of sockets.
-pub(crate) fn run_global_reactor_background() {
+pub(crate) fn run_reactor_background(reactor: Arc<Mutex<XdpReactor>>) {
     std::thread::spawn(move || {
         let timeout = Duration::from_millis(10);
 
         loop {
             let (fd, delay) = {
-                let mut reactor_guard = global_reactor();
-                let reactor = &mut *reactor_guard;
+                let mut reactor_guard = reactor.lock().unwrap();
 
-                while reactor.poll_and_flush().unwrap() == PollResult::SocketStateChanged {}
+                // 尽可能推进状态（处理所有待处理的包）
+                while reactor_guard.poll_and_flush().unwrap() == PollResult::SocketStateChanged {}
+
+                let XdpReactor {
+                    device,
+                    iface,
+                    sockets,
+                    ..
+                } = &mut *reactor_guard;
 
                 (
-                    reactor.device.as_raw_fd(),
-                    reactor.iface.poll_delay(Instant::now(), &reactor.sockets),
+                    device.as_raw_fd(),
+                    iface.poll_delay(Instant::now(), sockets),
                 )
             };
 
@@ -110,7 +119,7 @@ fn create_global_reactor() -> XdpReactor {
     }
 }
 
-pub(crate) struct XdpReactor {
+pub struct XdpReactor {
     pub(crate) iface: Interface,
     pub(crate) device: XdpDevice,
     pub(crate) sockets: SocketSet<'static>,
