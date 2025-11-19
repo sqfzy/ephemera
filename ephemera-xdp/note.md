@@ -46,3 +46,15 @@ build.rs
 `# WERROR := -Werror`
 
 可以试试libxdp提供的程序
+
+# 运行测试
+```
+nu setup_net.nu
+sudo -E /home/sqfzy/.cargo/bin/cargo nextest run
+```
+
+# xdp-loader
+```
+sudo xdp-loader status # 查看所有网卡的xdp加载情况
+sudo xdp-loader unload eth_main --all # 卸载eth_main网卡的xdp程序
+```

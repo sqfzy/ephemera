@@ -120,13 +120,20 @@ impl AsyncWrite for XdpTcpStream {
 
     fn poll_flush(
         self: std::pin::Pin<&mut Self>,
-        _cx: &mut std::task::Context<'_>,
+        cx: &mut std::task::Context<'_>,
     ) -> Poll<io::Result<()>> {
         let mut reactor = global_reactor();
 
         let socket = reactor.sockets.get_mut::<TcpSocket>(self.handle);
         if socket.send_queue() != 0 {
             reactor.poll_and_flush()?;
+        }
+
+        // 如果还有数据没发完（等待ACK或等待发送窗口），返回 Pending
+        let socket = reactor.sockets.get_mut::<TcpSocket>(self.handle);
+        if socket.send_queue() > 0 {
+            socket.register_send_waker(cx.waker());
+            return Poll::Pending;
         }
 
         Poll::Ready(Ok(()))
@@ -155,6 +162,20 @@ impl AsyncWrite for XdpTcpStream {
         Poll::Pending
     }
 }
+
+// impl Drop for XdpTcpStream {
+//     fn drop(&mut self) {
+//         // 使用XdpTcpStream绑定的reactor，而不是global_reactor
+//         let mut reactor = global_reactor();
+//
+//         let socket = reactor.sockets.get_mut::<TcpSocket>(self.handle);
+//         if socket.is_open() {
+//             socket.close();
+//             // 移除 socket，释放资源
+//             reactor.sockets.remove(self.handle);
+//         }
+//     }
+// }
 
 #[cfg(test)]
 #[serial_test::serial]
