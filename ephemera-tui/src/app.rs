@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ephemera_data::{BookData, CandleData, Symbol, TradeData};
 use ephemera_source::okx;
+use ephemera_shared::{BookData, CandleData, Symbol, TradeData};
 use eyre::Result;
 use futures::Stream;
 use rust_decimal::prelude::ToPrimitive;
@@ -320,7 +320,11 @@ impl App {
                 self.paused = !self.paused;
                 self.add_log(&format!(
                     "{}",
-                    if self.paused { "⏸ Data stream paused" } else { "▶ Data stream resumed" }
+                    if self.paused {
+                        "⏸ Data stream paused"
+                    } else {
+                        "▶ Data stream resumed"
+                    }
                 ));
                 self.should_render = true;
             }

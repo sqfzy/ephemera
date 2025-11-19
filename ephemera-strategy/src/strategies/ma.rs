@@ -1,7 +1,10 @@
-use crate::indicators::MA;
-use crate::{Indicator, Signal, Strategy};
-use ephemera_data::{CandleData, Symbol};
+use crate::{
+    indicators::{Indicator, MA},
+    strategies::Strategy,
+};
+use ephemera_shared::{CandleData, Signal, Symbol};
 use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -100,7 +103,7 @@ impl Strategy for MACrossStrategy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ephemera_data::CANDLE_INTERVAL_1M;
+    use ephemera_shared::CANDLE_INTERVAL_1M;
     use rust_decimal::dec;
 
     #[tokio::test]

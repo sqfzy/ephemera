@@ -1,4 +1,4 @@
-use ephemera_data::Symbol;
+use ephemera_shared::Symbol;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 

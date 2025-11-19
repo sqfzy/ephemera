@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-ephemera-data = { path = "../ephemera-data" }
+ephemera-shared = { path = "../ephemera-shared" }
 ephemera-source = { path = "../ephemera-source" }
 
 ratatui = "0.29"

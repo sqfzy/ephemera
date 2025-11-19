@@ -1,11 +1,12 @@
 [package]
-name = "ephemera-data"
+name = "ephemera-shared"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 async-stream = "0.3.6"
 bytestring = "1.4.0"
+dashmap = "6.1.0"
 futures = "0.3.31"
 itertools = "0.14.0"
 rust_decimal = { version = "1.37.2", features = ["macros"] }

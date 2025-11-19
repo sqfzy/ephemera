@@ -1,5 +1,5 @@
 use crate::indicators::MA;
-use crate::Indicator;
+use super::Indicator;
 use rust_decimal::Decimal;
 use std::collections::VecDeque;
 

@@ -7,7 +7,7 @@ pub use model::WsOperation;
 use crate::utils::{transform_raw_vec_stream, transform_raw_vec_stream_with};
 use async_stream::stream;
 use bytestring::ByteString;
-use ephemera_data::*;
+use ephemera_shared::*;
 use eyre::{ContextCompat, Result, ensure};
 use futures::{SinkExt, Stream, StreamExt};
 use http::{StatusCode, Uri};
@@ -303,7 +303,7 @@ pub enum OkxBookChannel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ephemera_data::Symbol;
+    use ephemera_shared::Symbol;
 
     const SYMBOLS: [Symbol; 2] = [
         Symbol::from_static("BTC-USDT"),

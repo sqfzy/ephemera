@@ -1,4 +1,4 @@
-use crate::Indicator;
+use super::Indicator;
 use rust_decimal::Decimal;
 
 /// 指数移动平均线 (Exponential Moving Average)

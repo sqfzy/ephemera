@@ -1,0 +1,44 @@
+# 单个策略配置
+[strategy]
+name = "ma_cross_btc"
+type = "MACross"
+enabled = true
+
+[strategy.params]
+symbol = "BTC-USDT"
+fast_period = 5
+slow_period = 20
+position_size = "0.1"
+
+[strategy.risk]
+max_position_size = "1.0"
+stop_loss_pct = "0.05"
+take_profit_pct = "0.10"
+
+# 多策略配置
+[[strategies]]
+name = "rsi_eth"
+type = "RSI"
+enabled = true
+
+[strategies.params]
+symbol = "ETH-USDT"
+period = 14
+oversold = "30"
+overbought = "70"
+position_size = "0.5"
+
+[strategies.risk]
+stop_loss_pct = "0.03"
+
+[[strategies]]
+name = "macd_sol"
+type = "MACD"
+enabled = false
+
+[strategies.params]
+symbol = "SOL-USDT"
+fast_period = 12
+slow_period = 26
+signal_period = 9
+position_size = "2.0"

@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
-use ephemera_data::*;
 use bytestring::ByteString;
+use ephemera_shared::*;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_with::{DisplayFromStr, serde_as};

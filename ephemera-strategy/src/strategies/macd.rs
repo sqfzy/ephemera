@@ -1,6 +1,6 @@
-use crate::{Indicator, Signal, Strategy};
 use crate::indicators::MACD;
-use ephemera_data::{CandleData, Symbol};
+use crate::{indicators::Indicator, strategies::Strategy};
+use ephemera_shared::{CandleData, Signal, Symbol};
 use rust_decimal::Decimal;
 use thiserror::Error;
 
@@ -91,7 +91,7 @@ impl Strategy for MACDStrategy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ephemera_data::CANDLE_INTERVAL_1M;
+    use ephemera_shared::CANDLE_INTERVAL_1M;
     use rust_decimal::dec;
 
     #[tokio::test]

@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use bytestring::ByteString;
-use ephemera_data::*;
+use ephemera_shared::*;
 use eyre::Result;
 use itertools::Itertools;
 use rust_decimal::Decimal;

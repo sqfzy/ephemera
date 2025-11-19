@@ -67,7 +67,7 @@ pub async fn okx_xdp_book_data_stream(
 #[serial_test::serial]
 mod tests {
     use super::*;
-    use ephemera_data::Symbol;
+    use ephemera_shared::Symbol;
     use std::sync::OnceLock;
 
     const SYMBOLS: [Symbol; 2] = [

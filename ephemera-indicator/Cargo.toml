@@ -1,0 +1,36 @@
+[package]
+name = "ephemera-indicator"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ephemera-shared = { path = "../ephemera-shared" }
+
+# 异步运行时
+tokio = { version = "1", features = ["full"] }
+
+# HTTP 客户端
+reqwest = { version = "0.12", features = ["json"] }
+
+# 数据处理
+ndarray = "0.16"
+
+# 序列化
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# 错误处理
+eyre = "0.6"
+color-eyre = "0.6"
+
+# 时间处理
+chrono = { version = "0.4", features = ["serde"] }
+
+# 日志
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+ndarray-stats = "0.6.0"

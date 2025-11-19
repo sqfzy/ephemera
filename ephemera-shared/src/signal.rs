@@ -1,5 +1,5 @@
+use crate::Symbol;
 use rust_decimal::Decimal;
-use ephemera_data::Symbol;
 
 /// 交易信号
 #[derive(Debug, Clone, PartialEq)]

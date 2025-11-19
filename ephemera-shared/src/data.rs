@@ -1,5 +1,6 @@
+use crate::{IntervalSc, Symbol, TimestampMs};
 use rust_decimal::Decimal;
-use crate::{DataResult, IntervalSc, Symbol, TimestampMs, error::DataError};
+use std::{cmp::Ordering, sync::Arc};
 
 pub const CANDLE_INTERVAL_1S: IntervalSc = 1;
 pub const CANDLE_INTERVAL_1M: IntervalSc = 60;
@@ -49,7 +50,7 @@ impl From<BookData> for MarketData {
 pub struct TradeData {
     // /// 交易所分配的唯一交易ID
     // pub trade_id: u64,
-    /// 产品ID，例如 "BTC-USDT"。
+    /// 产品ID。
     pub symbol: Symbol,
 
     /// 行情数据产生的时间，Unix时间戳的毫秒数格式。
@@ -176,6 +177,7 @@ impl CandleData {
     }
 }
 
+// PERF: 使用 Arc 避免频繁克隆或者使用数组
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct BookData {
     pub symbol: Symbol,
@@ -193,4 +195,72 @@ pub enum Side {
     Buy,
     #[strum(serialize = "sell")]
     Sell,
+}
+
+pub type DataResult<T> = std::result::Result<T, DataError>;
+
+#[derive(Debug, thiserror::Error)]
+pub enum DataError {
+    #[error("Expect interval {expected}, but found {found}.")]
+    MismatchedInterval {
+        expected: IntervalSc,
+        found: IntervalSc,
+    },
+
+    // Interval 无法整除
+    #[error("Interval {target} cannot be divided by {base}.")]
+    UnDivisibleInterval {
+        target: IntervalSc,
+        base: IntervalSc,
+    },
+
+    #[error("Expect symbol {expected}, but found {found}.")]
+    MismatchedSymbol { expected: Symbol, found: Symbol },
+
+    #[error(
+        "Expect timestamp to be {} {expected}, but found {found}",
+        display_ordering(expect_order)
+    )]
+    UnexpectedTimestamp {
+        expect_order: Ordering,
+        expected: TimestampMs,
+        found: TimestampMs,
+    },
+
+    #[error("Unexpect end of stream.")]
+    UnexpectedStreamEof,
+}
+
+impl DataError {
+    pub fn timestamp_should_be_after(expected: TimestampMs, found: TimestampMs) -> Self {
+        Self::UnexpectedTimestamp {
+            expect_order: Ordering::Greater,
+            expected,
+            found,
+        }
+    }
+
+    pub fn timestamp_should_be_before(expected: TimestampMs, found: TimestampMs) -> Self {
+        Self::UnexpectedTimestamp {
+            expect_order: Ordering::Less,
+            expected,
+            found,
+        }
+    }
+
+    pub fn timestamp_should_be_equal(expected: TimestampMs, found: TimestampMs) -> Self {
+        Self::UnexpectedTimestamp {
+            expect_order: Ordering::Equal,
+            expected,
+            found,
+        }
+    }
+}
+
+fn display_ordering(order: &Ordering) -> &'static str {
+    match order {
+        Ordering::Less => "less than",
+        Ordering::Equal => "equal to",
+        Ordering::Greater => "greater than",
+    }
 }

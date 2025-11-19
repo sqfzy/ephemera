@@ -1,5 +1,5 @@
+use super::Indicator;
 use crate::indicators::EMA;
-use crate::Indicator;
 use rust_decimal::Decimal;
 
 /// MACD指标
@@ -41,13 +41,13 @@ impl Indicator for MACD {
     fn update(&mut self, price: Self::Input) -> Option<Self::Output> {
         let fast = self.fast_ema.update(price)?;
         let slow = self.slow_ema.update(price)?;
-        
+
         let macd = fast - slow;
         self.macd_line = Some(macd);
-        
+
         let signal = self.signal_ema.update(macd)?;
         let histogram = macd - signal;
-        
+
         Some(MACDValue {
             macd,
             signal,
@@ -59,7 +59,7 @@ impl Indicator for MACD {
         let macd = self.macd_line?;
         let signal = self.signal_ema.value()?;
         let histogram = macd - signal;
-        
+
         Some(MACDValue {
             macd,
             signal,
@@ -83,7 +83,7 @@ mod tests {
     #[test]
     fn test_macd() {
         let mut macd = MACD::default();
-        
+
         for i in 1..=30 {
             let price = dec!(100) + Decimal::from(i);
             let result = macd.update(price);

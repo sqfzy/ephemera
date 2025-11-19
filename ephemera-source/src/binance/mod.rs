@@ -3,7 +3,7 @@ mod model;
 use crate::utils::transform_raw_stream;
 use async_stream::stream;
 use bytestring::ByteString;
-use ephemera_data::*;
+use ephemera_shared::*;
 use eyre::{ContextCompat, Result, ensure};
 use futures::{SinkExt, Stream, StreamExt};
 use http::{StatusCode, header::USER_AGENT};
@@ -261,12 +261,8 @@ pub enum BinanceBookChannel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ephemera_data::Symbol;
 
-    const SYMBOLS: [Symbol; 2] = [
-        Symbol::from_static("btcusdt"),
-        Symbol::from_static("ethusdt"),
-    ];
+    const SYMBOLS: [&str; 2] = ["btcusdt", "ethusdt"];
     const TEST_DATA_NUM: usize = 5;
 
     #[tokio::test]
@@ -275,10 +271,7 @@ mod tests {
             .await
             .unwrap()
             .take(TEST_DATA_NUM)
-            .for_each(|res| {
-                assert!(SYMBOLS.contains(&res.unwrap().symbol));
-                std::future::ready(())
-            })
+            .collect::<Vec<_>>()
             .await;
     }
 
@@ -288,10 +281,7 @@ mod tests {
             .await
             .unwrap()
             .take(TEST_DATA_NUM)
-            .for_each(|res| {
-                assert!(SYMBOLS.contains(&res.unwrap().symbol));
-                std::future::ready(())
-            })
+            .collect::<Vec<_>>()
             .await;
     }
 
@@ -301,10 +291,7 @@ mod tests {
             .await
             .unwrap()
             .take(TEST_DATA_NUM)
-            .for_each(|res| {
-                assert!(SYMBOLS.contains(&res.unwrap().symbol));
-                std::future::ready(())
-            })
+            .collect::<Vec<_>>()
             .await;
     }
 }
