@@ -1,11 +1,20 @@
-use crate::{bpf::xdp_ip_filter::XdpFilter, device::XdpDevice, reactor::XdpReactor};
+use crate::{
+    bpf::xdp_ip_filter::XdpFilter,
+    device::XdpDevice,
+    reactor::{XdpReactor, XdpReactorInner},
+};
 use libbpf_rs::{MapCore, MapFlags};
 use smoltcp::{
-    iface::{Interface, SocketSet},
+    iface::{Interface, SocketHandle},
+    socket::tcp::{Socket, SocketBuffer},
     time::Instant,
     wire::{EthernetAddress, IpAddress, IpCidr},
 };
-use std::{os::fd::AsRawFd, str::FromStr, sync::OnceLock};
+use std::{
+    os::fd::AsRawFd,
+    str::FromStr,
+    sync::{Arc, Mutex, OnceLock},
+};
 
 pub(crate) const INTERFACE_NAME1: &str = "test_iface1";
 pub(crate) const INTERFACE_MAC1: &str = "2a:2b:72:fb:e8:cc";
@@ -60,12 +69,7 @@ pub(crate) fn create_reactor1() -> XdpReactor {
     // bpf.add_allowed_src_ip(INTERFACE_IP2.parse::<IpAddr>().unwrap())
     //     .unwrap();
 
-    XdpReactor {
-        iface,
-        device,
-        sockets: SocketSet::new(vec![]),
-        bpf,
-    }
+    Arc::new(Mutex::new(XdpReactorInner::new(iface, device, bpf)))
 }
 
 pub(crate) fn create_reactor2() -> XdpReactor {
@@ -101,12 +105,7 @@ pub(crate) fn create_reactor2() -> XdpReactor {
     // bpf.add_allowed_src_ip(INTERFACE_IP2.parse::<IpAddr>().unwrap())
     //     .unwrap();
 
-    XdpReactor {
-        iface,
-        device,
-        sockets: SocketSet::new(vec![]),
-        bpf,
-    }
+    Arc::new(Mutex::new(XdpReactorInner::new(iface, device, bpf)))
 }
 
 pub(crate) fn find_index_by_name(name: &str) -> Option<u32> {
@@ -117,4 +116,12 @@ pub(crate) fn find_index_by_name(name: &str) -> Option<u32> {
         }
     }
     None
+}
+
+pub(crate) fn add_tcp_socket(reactor: &XdpReactor) -> SocketHandle {
+    let mut reactor = reactor.lock().unwrap();
+    reactor.sockets.add(Socket::new(
+        SocketBuffer::new(vec![0; 4096]),
+        SocketBuffer::new(vec![0; 4096]),
+    ))
 }

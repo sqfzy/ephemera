@@ -4,18 +4,12 @@ use smoltcp::{
     iface::SocketHandle,
     socket::tcp::{Socket as TcpSocket, SocketBuffer, State as TcpState},
 };
-use std::{
-    future::poll_fn,
-    io,
-    net::ToSocketAddrs,
-    sync::{Arc, Mutex},
-    task::Poll,
-};
+use std::{future::poll_fn, io, net::ToSocketAddrs, task::Poll};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 pub struct XdpTcpStream {
     pub(crate) handle: SocketHandle,
-    pub(crate) reactor: Arc<Mutex<XdpReactor>>,
+    pub(crate) reactor: XdpReactor,
 }
 
 impl XdpTcpStream {
@@ -27,7 +21,7 @@ impl XdpTcpStream {
     /// Connect using a specific reactor.
     pub async fn connect_with_reactor(
         addr: impl ToSocketAddrs,
-        reactor: Arc<Mutex<XdpReactor>>,
+        reactor: XdpReactor,
     ) -> io::Result<XdpTcpStream> {
         let handle = {
             let mut socket = TcpSocket::new(
@@ -197,15 +191,14 @@ impl AsyncWrite for XdpTcpStream {
 mod tests {
     use super::*;
     use crate::{async_listener::XdpTcpListener, reactor::run_reactor_background, test_utils::*};
-    use std::sync::{Arc, Mutex};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     #[tokio::test]
     async fn test_connect() {
         setup();
 
-        let reactor1 = Arc::new(Mutex::new(create_reactor1()));
-        let reactor2 = Arc::new(Mutex::new(create_reactor2()));
+        let reactor1 = create_reactor1();
+        let reactor2 = create_reactor2();
 
         run_reactor_background(reactor1.clone());
         run_reactor_background(reactor2.clone());
@@ -232,8 +225,8 @@ mod tests {
     async fn test_read_and_write() {
         setup();
 
-        let reactor1 = Arc::new(Mutex::new(create_reactor1()));
-        let reactor2 = Arc::new(Mutex::new(create_reactor2()));
+        let reactor1 = create_reactor1();
+        let reactor2 = create_reactor2();
 
         run_reactor_background(reactor1.clone());
         run_reactor_background(reactor2.clone());

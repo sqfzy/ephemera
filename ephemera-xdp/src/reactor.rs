@@ -11,7 +11,7 @@ use std::{
     sync::{Arc, LazyLock, Mutex},
 };
 
-pub(crate) static GLOBAL_XDP_REACTOR: LazyLock<Arc<Mutex<XdpReactor>>> = LazyLock::new(|| {
+pub(crate) static GLOBAL_XDP_REACTOR: LazyLock<Arc<Mutex<XdpReactorInner>>> = LazyLock::new(|| {
     let reactor = create_global_reactor();
     let reactor = Arc::new(Mutex::new(reactor));
 
@@ -21,12 +21,12 @@ pub(crate) static GLOBAL_XDP_REACTOR: LazyLock<Arc<Mutex<XdpReactor>>> = LazyLoc
     reactor
 });
 
-pub(crate) fn global_reactor() -> Arc<Mutex<XdpReactor>> {
+pub(crate) fn global_reactor() -> Arc<Mutex<XdpReactorInner>> {
     GLOBAL_XDP_REACTOR.clone()
 }
 
 // Reactor poll in background thread, so user should just care the state change of sockets.
-pub(crate) fn run_reactor_background(reactor: Arc<Mutex<XdpReactor>>) {
+pub(crate) fn run_reactor_background(reactor: Arc<Mutex<XdpReactorInner>>) {
     std::thread::spawn(move || {
         let timeout = Duration::from_millis(10);
 
@@ -37,7 +37,7 @@ pub(crate) fn run_reactor_background(reactor: Arc<Mutex<XdpReactor>>) {
                 // 尽可能推进状态（处理所有待处理的包）
                 while reactor_guard.poll_and_flush().unwrap() == PollResult::SocketStateChanged {}
 
-                let XdpReactor {
+                let XdpReactorInner {
                     device,
                     iface,
                     sockets,
@@ -55,7 +55,7 @@ pub(crate) fn run_reactor_background(reactor: Arc<Mutex<XdpReactor>>) {
     });
 }
 
-fn create_global_reactor() -> XdpReactor {
+fn create_global_reactor() -> XdpReactorInner {
     let iface = netdev::get_default_interface().expect("No network interfaces found");
     let gateway = netdev::get_default_gateway().expect("No default gateway found");
 
@@ -111,22 +111,28 @@ fn create_global_reactor() -> XdpReactor {
     //     bpf.add_allowed_ip(ip).unwrap();
     // }
 
-    XdpReactor {
-        iface,
-        device,
-        sockets: SocketSet::new(vec![]),
-        bpf,
-    }
+    XdpReactorInner::new(iface, device, bpf)
 }
 
-pub struct XdpReactor {
+pub type XdpReactor = Arc<Mutex<XdpReactorInner>>;
+
+pub struct XdpReactorInner {
     pub(crate) iface: Interface,
     pub(crate) device: XdpDevice,
     pub(crate) sockets: SocketSet<'static>,
     pub(crate) bpf: XdpFilter,
 }
 
-impl XdpReactor {
+impl XdpReactorInner {
+    pub(crate) fn new(iface: Interface, device: XdpDevice, bpf: XdpFilter) -> XdpReactorInner {
+        XdpReactorInner {
+            iface,
+            device,
+            sockets: SocketSet::new(vec![]),
+            bpf,
+        }
+    }
+
     /// Poll the interface, try to make all sockets state advance.
     /// Usually, you should call `poll` before the socket recvice something; and call `poll_and_wakeup` after the socket send something.
     pub(crate) fn poll(&mut self) -> PollResult {
@@ -176,17 +182,6 @@ impl XdpReactor {
     //     self.device.flush()
     // }
 
-    #[cfg(test)]
-    pub(crate) fn add_tcp_socket(&mut self) -> smoltcp::iface::SocketHandle {
-        use smoltcp::socket::tcp::{Socket as TcpSocket, SocketBuffer};
-
-        let socket = TcpSocket::new(
-            SocketBuffer::new(vec![0; 4096]),
-            SocketBuffer::new(vec![0; 4096]),
-        );
-        self.sockets.add(socket)
-    }
-
     // pub(crate) fn waiter(&mut self) -> impl FnOnce() -> io::Result<()> {
     //     let delay = self.iface.poll_delay(Instant::now(), &self.sockets);
     //     let fd = self.device.as_raw_fd();
@@ -209,27 +204,32 @@ mod tests {
     fn test_reactor_read_and_write() {
         setup();
 
-        let mut reactor1 = create_reactor1();
-        let mut reactor2 = create_reactor2();
+        let reactor1 = create_reactor1();
+        let reactor2 = create_reactor2();
 
-        let handle1 = reactor1.add_tcp_socket();
-        let handle2 = reactor2.add_tcp_socket();
+        let handle1 = add_tcp_socket(&reactor1);
+        let handle2 = add_tcp_socket(&reactor2);
 
         let server_endpoint =
             IpEndpoint::new(INTERFACE_IP1.parse::<Ipv4Addr>().unwrap().into(), 12345);
         let local_endpoint =
             IpEndpoint::new(INTERFACE_IP2.parse::<Ipv4Addr>().unwrap().into(), 12346);
 
+        let mut reactor1 = reactor1.lock().unwrap();
+        let mut reactor2 = reactor2.lock().unwrap();
+
         reactor1
             .sockets
             .get_mut::<TcpSocket>(handle1)
             .listen(server_endpoint)
             .unwrap();
-        reactor2
-            .sockets
-            .get_mut::<TcpSocket>(handle2)
-            .connect(reactor2.iface.context(), server_endpoint, local_endpoint)
-            .unwrap();
+        {
+            let XdpReactorInner { iface, sockets, .. } = &mut *reactor2;
+            sockets
+                .get_mut::<TcpSocket>(handle2)
+                .connect(iface.context(), server_endpoint, local_endpoint)
+                .unwrap();
+        }
 
         for _ in 0..30 {
             reactor2.poll_and_flush().unwrap();

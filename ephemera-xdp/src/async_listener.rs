@@ -10,13 +10,12 @@ use std::{
     future::poll_fn,
     io,
     net::{IpAddr, SocketAddr, ToSocketAddrs},
-    sync::{Arc, Mutex},
     task::Poll,
 };
 
 pub struct XdpTcpListener {
     pub(crate) handle: SocketHandle,
-    pub(crate) reactor: Arc<Mutex<XdpReactor>>,
+    pub(crate) reactor: XdpReactor,
 }
 
 impl XdpTcpListener {
@@ -28,7 +27,7 @@ impl XdpTcpListener {
     /// Bind using a specific reactor.
     pub fn bind_with_reactor(
         addr: impl ToSocketAddrs,
-        reactor: Arc<Mutex<XdpReactor>>,
+        reactor: XdpReactor,
     ) -> io::Result<Self> {
         let addr = addr
             .to_socket_addrs()?
