@@ -23,12 +23,6 @@ pub(crate) mod xdp_ip_filter {
     // Include the generated skeleton code
     include!(concat!(env!("OUT_DIR"), "/xdp_ip_filter.skel.rs"));
 
-    #[repr(C)]
-    struct PortRule {
-        allowed_protocols: u8,
-        reserved: [u8; 3],
-    }
-
     pub(crate) struct XdpFilter {
         pub(crate) xdp_if_index: i32,
         pub(crate) skel: XdpFilterSkel<'static>,
@@ -118,23 +112,12 @@ pub(crate) mod xdp_ip_filter {
             protocols: u8,
         ) -> Result<(), libbpf_rs::Error> {
             let key: [u8; 2] = port.to_be_bytes();
-            let value = PortRule {
-                allowed_protocols: protocols,
-                reserved: [0; 3],
-            };
-            // SAFETY: PortRule is POD (Plain Old Data) and #[repr(C)]
-            let value_bytes = unsafe {
-                std::slice::from_raw_parts(
-                    &value as *const PortRule as *const u8,
-                    std::mem::size_of::<PortRule>(),
-                )
-            };
+            let value = [protocols];
 
-            self.skel.maps.allowed_dst_ports_map.update(
-                &key,
-                value_bytes,
-                libbpf_rs::MapFlags::ANY,
-            )?;
+            self.skel
+                .maps
+                .allowed_dst_ports_map
+                .update(&key, &value, libbpf_rs::MapFlags::ANY)?;
 
             debug!("Set port {port} with protocol mask {protocols:#04x}");
 

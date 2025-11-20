@@ -47,17 +47,11 @@ struct {
   __uint(max_entries, 1024);
 } allowed_src_ips_map_v6 SEC(".maps");
 
-// 目标端口白名单结构
-struct port_rule {
-  __u8 allowed_protocols; // 协议位掩码
-  __u8 reserved[3];       // 对齐填充
-};
-
 // 目标端口白名单
 struct {
   __uint(type, BPF_MAP_TYPE_HASH);
   __uint(key_size, sizeof(__u16));
-  __uint(value_size, sizeof(struct port_rule));
+  __uint(value_size, sizeof(__u8)); // 协议位掩码
   __uint(max_entries, 128);
 } allowed_dst_ports_map SEC(".maps");
 
@@ -117,12 +111,12 @@ static __always_inline int check_l4_port(struct xdp_md *ctx,
   }
 
   // 查询目标端口白名单
-  struct port_rule *rule =
+  __u8 *allowed_protocols =
       bpf_map_lookup_elem(&allowed_dst_ports_map, &dst_port);
   
-  if (rule) {
+  if (allowed_protocols ) {
     // 检查协议是否被允许
-    if (rule->allowed_protocols & proto_mask) {
+    if (*allowed_protocols  & proto_mask) {
       return bpf_redirect_map(&xsks_map, 0, XDP_PASS);
     } else {
       // 端口匹配但协议不匹配，丢弃数据包
