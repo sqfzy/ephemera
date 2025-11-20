@@ -69,7 +69,9 @@ pub(crate) fn create_reactor1() -> XdpReactor {
     // bpf.add_allowed_src_ip(INTERFACE_IP2.parse::<IpAddr>().unwrap())
     //     .unwrap();
 
-    Arc::new(Mutex::new(XdpReactorInner::new(iface, device, bpf)))
+    XdpReactor(Arc::new(Mutex::new(XdpReactorInner::new(
+        iface, device, bpf,
+    ))))
 }
 
 pub(crate) fn create_reactor2() -> XdpReactor {
@@ -105,7 +107,9 @@ pub(crate) fn create_reactor2() -> XdpReactor {
     // bpf.add_allowed_src_ip(INTERFACE_IP2.parse::<IpAddr>().unwrap())
     //     .unwrap();
 
-    Arc::new(Mutex::new(XdpReactorInner::new(iface, device, bpf)))
+    XdpReactor(Arc::new(Mutex::new(XdpReactorInner::new(
+        iface, device, bpf,
+    ))))
 }
 
 pub(crate) fn find_index_by_name(name: &str) -> Option<u32> {

@@ -7,13 +7,14 @@ use smoltcp::{
 };
 use std::{
     io,
+    ops::Deref,
     os::fd::AsRawFd,
     sync::{Arc, LazyLock, Mutex},
 };
 
-pub(crate) static GLOBAL_XDP_REACTOR: LazyLock<Arc<Mutex<XdpReactorInner>>> = LazyLock::new(|| {
+pub(crate) static GLOBAL_XDP_REACTOR: LazyLock<XdpReactor> = LazyLock::new(|| {
     let reactor = create_global_reactor();
-    let reactor = Arc::new(Mutex::new(reactor));
+    let reactor = XdpReactor(Arc::new(Mutex::new(reactor)));
 
     // 启动全局后台线程
     run_reactor_background(reactor.clone());
@@ -21,12 +22,12 @@ pub(crate) static GLOBAL_XDP_REACTOR: LazyLock<Arc<Mutex<XdpReactorInner>>> = La
     reactor
 });
 
-pub(crate) fn global_reactor() -> Arc<Mutex<XdpReactorInner>> {
+pub(crate) fn global_reactor() -> XdpReactor {
     GLOBAL_XDP_REACTOR.clone()
 }
 
 // Reactor poll in background thread, so user should just care the state change of sockets.
-pub(crate) fn run_reactor_background(reactor: Arc<Mutex<XdpReactorInner>>) {
+pub(crate) fn run_reactor_background(reactor: XdpReactor) {
     std::thread::spawn(move || {
         let timeout = Duration::from_millis(10);
 
@@ -114,7 +115,16 @@ fn create_global_reactor() -> XdpReactorInner {
     XdpReactorInner::new(iface, device, bpf)
 }
 
-pub type XdpReactor = Arc<Mutex<XdpReactorInner>>;
+#[derive(Clone)]
+pub struct XdpReactor(pub(crate) Arc<Mutex<XdpReactorInner>>);
+
+impl Deref for XdpReactor {
+    type Target = Arc<Mutex<XdpReactorInner>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 pub struct XdpReactorInner {
     pub(crate) iface: Interface,

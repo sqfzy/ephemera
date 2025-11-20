@@ -1,5 +1,6 @@
 use crate::{
     async_stream::XdpTcpStream,
+    bpf,
     reactor::{XdpReactor, global_reactor},
 };
 use smoltcp::{
@@ -25,10 +26,7 @@ impl XdpTcpListener {
     }
 
     /// Bind using a specific reactor.
-    pub fn bind_with_reactor(
-        addr: impl ToSocketAddrs,
-        reactor: XdpReactor,
-    ) -> io::Result<Self> {
+    pub fn bind_with_reactor(addr: impl ToSocketAddrs, reactor: XdpReactor) -> io::Result<Self> {
         let addr = addr
             .to_socket_addrs()?
             .next()
@@ -47,7 +45,7 @@ impl XdpTcpListener {
 
             reactor_guard
                 .bpf
-                .add_allowed_dst_port(addr.port())
+                .add_allowed_dst_port(addr.port(), bpf::PROTO_TCP)
                 .map_err(io::Error::other)?;
 
             handle
