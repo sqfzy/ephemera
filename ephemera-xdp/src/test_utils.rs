@@ -64,10 +64,6 @@ pub(crate) fn create_reactor1() -> XdpReactor {
             MapFlags::ANY,
         )
         .unwrap();
-    // bpf.add_allowed_src_ip(INTERFACE_IP1.parse::<IpAddr>().unwrap())
-    //     .unwrap();
-    // bpf.add_allowed_src_ip(INTERFACE_IP2.parse::<IpAddr>().unwrap())
-    //     .unwrap();
 
     XdpReactor(Arc::new(Mutex::new(XdpReactorInner::new(
         iface, device, bpf,
@@ -102,10 +98,6 @@ pub(crate) fn create_reactor2() -> XdpReactor {
             MapFlags::ANY,
         )
         .unwrap();
-    // bpf.add_allowed_src_ip(INTERFACE_IP1.parse::<IpAddr>().unwrap())
-    //     .unwrap();
-    // bpf.add_allowed_src_ip(INTERFACE_IP2.parse::<IpAddr>().unwrap())
-    //     .unwrap();
 
     XdpReactor(Arc::new(Mutex::new(XdpReactorInner::new(
         iface, device, bpf,

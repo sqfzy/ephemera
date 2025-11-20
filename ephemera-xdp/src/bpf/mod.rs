@@ -8,12 +8,6 @@ pub const PROTO_ALL: u8 = 0xFF;
 /// Mask denying all protocols.
 pub const PROTO_NONE: u8 = 0x00;
 
-/// Log levels for the BPF program.
-pub const LOG_LEVEL_DEBUG: u8 = 0;
-pub const LOG_LEVEL_INFO: u8 = 1;
-pub const LOG_LEVEL_WARN: u8 = 2;
-pub const LOG_LEVEL_ERROR: u8 = 3;
-
 pub(crate) mod xdp_ip_filter {
     use super::*;
     use libbpf_rs::XdpFlags;
