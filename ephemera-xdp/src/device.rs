@@ -477,7 +477,7 @@ impl<const FC: usize> Device for XdpDevice<FC> {
 
     fn capabilities(&self) -> DeviceCapabilities {
         let mut caps = DeviceCapabilities::default();
-        caps.max_transmission_unit = 1500;
+        caps.max_transmission_unit = 3000;
         caps.medium = Medium::Ethernet;
         // caps.checksum.ipv4 = Checksum::Tx;
         // caps.checksum.tcp = Checksum::Tx;

@@ -12,7 +12,9 @@ pub async fn okx_xdp_trade_data_stream(
             .collect_vec(),
         id: None,
     };
+    println!("debug0");
     let stream = XdpTcpStream::connect(OKX_WS_HOST).await?;
+    println!("debug1");
     okx_raw_data_stream::<WsDataResponse<RawTradeData>>(OKX_WS_PUBLICE_ENDPOINT, request, stream)
         .await
         .map(transform_raw_vec_stream)

@@ -1,7 +1,7 @@
 use crate::{bpf::xdp_ip_filter::XdpFilter, device::XdpDevice};
 use libbpf_rs::{MapCore, MapFlags};
 use smoltcp::{
-    iface::{Interface, PollResult, SocketSet},
+    iface::{Interface, PollResult, Route, SocketSet},
     time::{Duration, Instant},
     wire::{EthernetAddress, IpCidr},
 };
@@ -12,22 +12,18 @@ use std::{
     os::fd::AsRawFd,
     sync::{Arc, LazyLock, Mutex},
 };
+use tracing::debug;
 
 /// Global singleton instance of the XDP Reactor.
 ///
 /// Initializes the background polling thread lazily upon first access.
 pub(crate) static GLOBAL_XDP_REACTOR: LazyLock<XdpReactor> = LazyLock::new(|| {
-    let reactor = create_global_reactor();
-    let reactor = XdpReactor(Arc::new(Mutex::new(reactor)));
+    let reactor = XdpReactor::create_reactor(None).unwrap();
     run_reactor_background(reactor.clone());
     reactor
 });
 
 /// Returns the global shared XDP reactor instance.
-pub(crate) fn global_reactor() -> XdpReactor {
-    GLOBAL_XDP_REACTOR.clone()
-}
-
 /// Polls the reactor in a background thread.
 ///
 /// This drives the event loop, handling underlying XDP socket polling and interface flushing.
@@ -64,62 +60,6 @@ pub(crate) fn run_reactor_background(reactor: XdpReactor) {
     });
 }
 
-/// Auto-detects network configuration and initializes the inner reactor.
-fn create_global_reactor() -> XdpReactorInner {
-    // Detect default interface and gateway
-    let iface = netdev::get_default_interface().expect("No network interfaces found");
-    let gateway = netdev::get_default_gateway().expect("No default gateway found");
-
-    let xdp_if_name = &iface.name;
-    let xdp_if_index = iface.index;
-    let xdp_mac = iface
-        .mac_addr
-        .expect("No MAC address found for the interface");
-    let xdp_ip = iface
-        .ip_addrs()
-        .into_iter()
-        .next()
-        .expect("No IP address found for the interface");
-    let xdp_gateway_ipv4 = gateway
-        .ipv4
-        .into_iter()
-        .next()
-        .expect("No gateway IPv4 address found");
-
-    // Load BPF program and create AF_XDP socket
-    let bpf = XdpFilter::new(xdp_if_index as i32).expect("Failed to load BPF program.");
-    let mut device = XdpDevice::new(xdp_if_name).expect("Failed to create XDP device.");
-
-    // Initialize smoltcp interface
-    let mut iface = Interface::new(
-        smoltcp::iface::Config::new(EthernetAddress(xdp_mac.octets()).into()),
-        &mut device,
-        Instant::now(),
-    );
-
-    iface.update_ip_addrs(|ip_addrs| {
-        ip_addrs
-            .push(IpCidr::new(xdp_ip.into(), 24))
-            .expect("Address list is full.");
-    });
-
-    iface
-        .routes_mut()
-        .add_default_ipv4_route(xdp_gateway_ipv4)
-        .expect("Failed to add default route.");
-
-    // Register the AF_XDP socket FD in the BPF map.
-    // Note: Hardcoded to key 0 (RX Queue 0) for this implementation.
-    let xsk_fd = device.as_raw_fd();
-    bpf.skel
-        .maps
-        .xsks_map
-        .update(&0_i32.to_le_bytes(), &xsk_fd.to_le_bytes(), MapFlags::ANY)
-        .expect("Failed to update xsks_map.");
-
-    XdpReactorInner::new(iface, device, bpf)
-}
-
 /// XDP Reactor - Manages the XDP device, network interface, and socket set.
 ///
 /// The `XdpReactor` is the primary entry point for the XDP network stack.
@@ -148,14 +88,6 @@ fn create_global_reactor() -> XdpReactorInner {
 pub struct XdpReactor(pub(crate) Arc<Mutex<XdpReactorInner>>);
 
 impl XdpReactor {
-    /// Creates a new `XdpReactor` using the default network interface.
-    ///
-    /// Automatically detects the system's default interface and gateway,
-    /// then starts the background polling thread.
-    pub fn new() -> io::Result<Self> {
-        Self::create_reactor(None)
-    }
-
     /// Creates a new `XdpReactor` bound to a specific network interface.
     ///
     /// # Arguments
@@ -168,7 +100,7 @@ impl XdpReactor {
     /// Internal helper to initialize the reactor logic.
     fn create_reactor(interface_name: Option<&str>) -> io::Result<Self> {
         // 1. Identify interface
-        let iface_info = if let Some(name) = interface_name {
+        let interface = if let Some(name) = interface_name {
             netdev::get_interfaces()
                 .into_iter()
                 .find(|i| i.name == name)
@@ -183,12 +115,12 @@ impl XdpReactor {
                 .map_err(|e| io::Error::new(io::ErrorKind::NotFound, e))?
         };
 
-        let xdp_if_name = &iface_info.name;
-        let xdp_if_index = iface_info.index;
+        let xdp_if_name = &interface.name;
+        let xdp_if_index = interface.index;
 
         // 2. Retrieve MAC address
         let xdp_mac = EthernetAddress(
-            iface_info
+            interface
                 .mac_addr
                 .ok_or_else(|| {
                     io::Error::new(
@@ -199,22 +131,7 @@ impl XdpReactor {
                 .octets(),
         );
 
-        // 3. Retrieve IP address
-        let xdp_ip = iface_info.ip_addrs().into_iter().next().ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::NotFound,
-                "No IP address found for the interface",
-            )
-        })?;
-
-        // 4. Retrieve Gateway
-        let gateway = netdev::get_default_gateway()
-            .map_err(|e| io::Error::new(io::ErrorKind::NotFound, e))?;
-        let xdp_gateway_ipv4 = gateway
-            .ipv4
-            .into_iter()
-            .next()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "No IPv4 gateway found"))?;
+        debug!(xdp_if_name = xdp_if_name, xdp_mac = %xdp_mac);
 
         // 5. Load BPF program
         let bpf = XdpFilter::new(xdp_if_index as i32)
@@ -231,16 +148,47 @@ impl XdpReactor {
             Instant::now(),
         );
 
-        iface.update_ip_addrs(|ip_addrs| {
-            ip_addrs
-                .push(IpCidr::new(xdp_ip.into(), 24))
-                .expect("Failed to add IP address");
-        });
+        for ipv4 in &interface.ipv4 {
+            iface.update_ip_addrs(|ip_addrs| {
+                ip_addrs
+                    .push(IpCidr::new(ipv4.addr().into(), ipv4.prefix_len()))
+                    .ok();
+            });
 
+            debug!(xdp_if_name = xdp_if_name, ipv4 = %ipv4);
+        }
+        for ipv6 in &interface.ipv6 {
+            iface.update_ip_addrs(|ip_addrs| {
+                ip_addrs
+                    .push(IpCidr::new(ipv6.addr().into(), ipv6.prefix_len()))
+                    .ok();
+            });
+
+            debug!(xdp_if_name = xdp_if_name, ipv6 = %ipv6);
+        }
+        if iface.ip_addrs().is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "No IP addresses found for the interface",
+            ));
+        }
+
+        let gateway = netdev::get_default_gateway()
+            .map_err(|e| io::Error::new(io::ErrorKind::NotFound, e))?;
+        let xdp_gateway_ipv4 = gateway
+            .ipv4
+            .into_iter()
+            .next()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "No IPv4 gateway found"))?;
         iface
             .routes_mut()
             .add_default_ipv4_route(xdp_gateway_ipv4)
             .map_err(|e| io::Error::other(format!("Failed to add default route: {}", e)))?;
+
+        debug!(
+            xdp_if_name = xdp_if_name,
+            xdp_gateway_ipv4 = %xdp_gateway_ipv4,
+        );
 
         // 8. Map queue 0 to our socket FD in BPF
         let xsk_fd = device.as_raw_fd();
@@ -262,7 +210,7 @@ impl XdpReactor {
     ///
     /// The global reactor is lazily initialized on first access.
     pub fn global() -> XdpReactor {
-        global_reactor()
+        GLOBAL_XDP_REACTOR.clone()
     }
 
     // ==================== Configuration Methods (Setters) ====================
@@ -321,7 +269,7 @@ impl XdpReactor {
         gateway: smoltcp::wire::Ipv4Address,
     ) -> io::Result<()> {
         let mut guard = self.lock().unwrap();
-        let mut route = smoltcp::iface::Route::new_ipv4_gateway(gateway);
+        let mut route = Route::new_ipv4_gateway(gateway);
         route.cidr = cidr;
 
         let mut result = Ok(());
@@ -726,4 +674,3 @@ mod tests {
         assert_eq!(buf, msg);
     }
 }
-
