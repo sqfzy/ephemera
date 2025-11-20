@@ -1,8 +1,4 @@
-use crate::{
-    async_stream::XdpTcpStream,
-    bpf,
-    reactor::{XdpReactor, global_reactor},
-};
+use crate::{async_stream::XdpTcpStream, bpf, reactor::XdpReactor};
 use smoltcp::{
     iface::SocketHandle,
     socket::tcp::{Socket as TcpSocket, SocketBuffer, State},
@@ -22,7 +18,7 @@ pub struct XdpTcpListener {
 impl XdpTcpListener {
     /// Bind using the global reactor.
     pub fn bind(addr: impl ToSocketAddrs) -> io::Result<Self> {
-        Self::bind_with_reactor(addr, global_reactor())
+        Self::bind_with_reactor(addr, XdpReactor::global())
     }
 
     /// Bind using a specific reactor.

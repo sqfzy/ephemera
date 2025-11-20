@@ -1,7 +1,4 @@
-use crate::{
-    bpf,
-    reactor::{XdpReactor, global_reactor},
-};
+use crate::{bpf, reactor::XdpReactor};
 use portpicker::pick_unused_port;
 use smoltcp::{
     iface::SocketHandle,
@@ -18,7 +15,7 @@ pub struct XdpTcpStream {
 impl XdpTcpStream {
     /// Connect using the global reactor.
     pub async fn connect(addr: impl ToSocketAddrs) -> io::Result<XdpTcpStream> {
-        Self::connect_with_reactor(addr, global_reactor()).await
+        Self::connect_with_reactor(addr, XdpReactor::global()).await
     }
 
     /// Connect using a specific reactor.
