@@ -1,4 +1,4 @@
-use crate::{async_stream::XdpTcpStream, bpf, reactor::XdpReactor};
+use crate::{async_stream::XdpTcpStream, bpf::Protocols, reactor::XdpReactor};
 use smoltcp::{
     iface::SocketHandle,
     socket::tcp::{Socket as TcpSocket, SocketBuffer, State},
@@ -41,7 +41,7 @@ impl XdpTcpListener {
 
             reactor_guard
                 .bpf
-                .add_allowed_dst_port(addr.port(), bpf::PROTO_TCP)
+                .add_allowed_dst_port(addr.port(), Protocols::TCP)
                 .map_err(io::Error::other)?;
 
             handle

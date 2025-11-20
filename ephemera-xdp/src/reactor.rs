@@ -1,4 +1,7 @@
-use crate::{bpf::xdp_ip_filter::XdpFilter, device::XdpDevice};
+use crate::{
+    bpf::{Protocols, xdp_ip_filter::XdpFilter},
+    device::XdpDevice,
+};
 use libbpf_rs::{MapCore, MapFlags};
 use smoltcp::{
     iface::{Interface, PollResult, Route, SocketSet},
@@ -131,7 +134,7 @@ impl XdpReactor {
                 .octets(),
         );
 
-        debug!(xdp_if_name = xdp_if_name, xdp_mac = %xdp_mac);
+        debug!(xdp_if_name = xdp_if_name, xdp_if_index = xdp_if_index, xdp_mac = %xdp_mac);
 
         // 5. Load BPF program
         let bpf = XdpFilter::new(xdp_if_index as i32)
@@ -337,7 +340,7 @@ impl XdpReactor {
     /// reactor.set_allowed_src_ip(ip, PROTO_TCP | PROTO_UDP)?;
     /// # Ok::<(), std::io::Error>(())
     /// ```
-    pub fn set_allowed_src_ip(&self, ip: IpAddr, proto: u8) -> io::Result<()> {
+    pub fn set_allowed_src_ip(&self, ip: IpAddr, proto: Protocols) -> io::Result<()> {
         let guard = self.lock().unwrap();
         guard
             .bpf
@@ -353,7 +356,7 @@ impl XdpReactor {
     ///
     /// * `port` - The destination port number.
     /// * `proto` - The protocol bitmask.
-    pub fn set_allowed_dst_port(&self, port: u16, proto: u8) -> io::Result<()> {
+    pub fn set_allowed_dst_port(&self, port: u16, proto: Protocols) -> io::Result<()> {
         let guard = self.lock().unwrap();
         guard
             .bpf
@@ -369,22 +372,7 @@ impl XdpReactor {
     ///
     /// * `ip` - The source IP address.
     /// * `proto` - The protocol flag(s) to add.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use ephemera_xdp::reactor::XdpReactor;
-    /// use ephemera_xdp::bpf::{PROTO_TCP, PROTO_UDP};
-    /// use std::net::IpAddr;
-    ///
-    /// let reactor = XdpReactor::global();
-    /// let ip: IpAddr = "192.168.1.100".parse()?;
-    ///
-    /// reactor.add_allowed_src_ip(ip, PROTO_TCP)?;
-    /// reactor.add_allowed_src_ip(ip, PROTO_UDP)?; // Now both TCP and UDP are allowed
-    /// # Ok::<(), std::io::Error>(())
-    /// ```
-    pub fn add_allowed_src_ip(&self, ip: IpAddr, proto: u8) -> io::Result<()> {
+    pub fn add_allowed_src_ip(&self, ip: IpAddr, proto: Protocols) -> io::Result<()> {
         let guard = self.lock().unwrap();
         guard
             .bpf
@@ -395,7 +383,7 @@ impl XdpReactor {
     /// Adds protocols to the allowed mask for a destination port.
     ///
     /// This performs a bitwise OR with existing protocols.
-    pub fn add_allowed_dst_port(&self, port: u16, proto: u8) -> io::Result<()> {
+    pub fn add_allowed_dst_port(&self, port: u16, proto: Protocols) -> io::Result<()> {
         let guard = self.lock().unwrap();
         guard
             .bpf
@@ -409,23 +397,7 @@ impl XdpReactor {
     ///
     /// * `ip` - The target IP address.
     /// * `proto` - The protocol flag(s) to remove.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use ephemera_xdp::reactor::XdpReactor;
-    /// use ephemera_xdp::bpf::{PROTO_TCP, PROTO_UDP, PROTO_ALL};
-    /// use std::net::IpAddr;
-    ///
-    /// let reactor = XdpReactor::global();
-    /// let ip: IpAddr = "192.168.1.100".parse()?;
-    ///
-    /// // Assume TCP and UDP are currently allowed
-    /// reactor.remove_allowed_src_ip(ip, PROTO_TCP)?; // Removes TCP, keeps UDP
-    /// reactor.remove_allowed_src_ip(ip, PROTO_ALL)?; // Removes all protocols
-    /// # Ok::<(), std::io::Error>(())
-    /// ```
-    pub fn remove_allowed_src_ip(&self, ip: IpAddr, proto: u8) -> io::Result<()> {
+    pub fn remove_allowed_src_ip(&self, ip: IpAddr, proto: Protocols) -> io::Result<()> {
         let guard = self.lock().unwrap();
         guard
             .bpf
@@ -434,7 +406,7 @@ impl XdpReactor {
     }
 
     /// Removes specific protocols from the allowed mask for a destination port.
-    pub fn remove_allowed_dst_port(&self, port: u16, proto: u8) -> io::Result<()> {
+    pub fn remove_allowed_dst_port(&self, port: u16, proto: Protocols) -> io::Result<()> {
         let guard = self.lock().unwrap();
         guard
             .bpf
@@ -445,7 +417,7 @@ impl XdpReactor {
     /// Gets the currently allowed protocol mask for a source IP.
     ///
     /// Returns `PROTO_NONE` if the IP is not in the filter map.
-    pub fn get_allowed_src_ip_proto(&self, ip: IpAddr) -> io::Result<u8> {
+    pub fn get_allowed_src_ip_proto(&self, ip: IpAddr) -> io::Result<Protocols> {
         let guard = self.lock().unwrap();
         guard
             .bpf
@@ -456,7 +428,7 @@ impl XdpReactor {
     /// Gets the currently allowed protocol mask for a destination port.
     ///
     /// Returns `PROTO_NONE` if the port is not in the filter map.
-    pub fn get_allowed_dst_port_proto(&self, port: u16) -> io::Result<u8> {
+    pub fn get_allowed_dst_port_proto(&self, port: u16) -> io::Result<Protocols> {
         let guard = self.lock().unwrap();
         guard
             .bpf

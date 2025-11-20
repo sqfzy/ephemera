@@ -9,10 +9,10 @@ use std::{
     num::NonZeroU32,
     os::fd::{AsRawFd, RawFd},
 };
-use tracing::trace;
+use tracing::{debug, trace};
 use xsk_rs::{
     CompQueue, FillQueue, FrameDesc,
-    config::{LibxdpFlags, SocketConfig, UmemConfig},
+    config::{BindFlags, LibxdpFlags, SocketConfig, UmemConfig},
     socket::{RxQueue, Socket as XskSocket, TxQueue},
     umem::Umem,
 };
@@ -29,8 +29,18 @@ impl<const FC: usize> XdpDevice<FC> {
     pub(crate) fn new(if_name: &str) -> Result<Self, Box<dyn Error>> {
         // PERF:
         let sk_conf = SocketConfig::builder()
-            // .xdp_flags(XdpFlags::XDP_FLAGS_SKB_MODE) // 使用 SKB 模式
-            .libxdp_flags(LibxdpFlags::XSK_LIBXDP_FLAGS_INHIBIT_PROG_LOAD) // 不要使用默认的XDP程序
+            .bind_flags(BindFlags::XDP_USE_NEED_WAKEUP | BindFlags::XDP_ZEROCOPY)
+            .libxdp_flags(LibxdpFlags::XSK_LIBXDP_FLAGS_INHIBIT_PROG_LOAD) // 使用自定义的XDP程序
+            .build();
+
+        let res = Self::new_with_config(if_name, sk_conf);
+        if res.is_ok() {
+            return res;
+        }
+
+        let sk_conf = SocketConfig::builder()
+            .bind_flags(BindFlags::XDP_USE_NEED_WAKEUP)
+            .libxdp_flags(LibxdpFlags::XSK_LIBXDP_FLAGS_INHIBIT_PROG_LOAD) // 使用自定义的XDP程序
             .build();
 
         Self::new_with_config(if_name, sk_conf)
@@ -65,6 +75,8 @@ impl<const FC: usize> XdpDevice<FC> {
             // 初始化，所有rx_fds，内核都可用来读
             fq.produce(&rx_fds);
         };
+
+        debug!(sk_conf = ?sk_conf);
 
         Ok(Self {
             fd: tx_q.fd().as_raw_fd(),

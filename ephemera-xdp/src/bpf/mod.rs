@@ -1,12 +1,15 @@
-/// Protocol bitmasks used for filtering rules.
-pub const PROTO_TCP: u8 = 1 << 0;
-pub const PROTO_UDP: u8 = 1 << 1;
-pub const PROTO_ICMP: u8 = 1 << 2;
-pub const PROTO_ICMPV6: u8 = 1 << 3;
-/// Mask allowing all supported protocols.
-pub const PROTO_ALL: u8 = 0xFF;
-/// Mask denying all protocols.
-pub const PROTO_NONE: u8 = 0x00;
+bitflags::bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct Protocols: u8 {
+        const TCP = 1 << 0;
+        const UDP = 1 << 1;
+        const ICMP = 1 << 2;
+        const ICMPV6 = 1 << 3;
+
+        const ALL = 0xFF;
+        const NONE = 0x00;
+    }
+}
 
 pub(crate) mod xdp_ip_filter {
     use super::*;
@@ -43,10 +46,18 @@ pub(crate) mod xdp_ip_filter {
 
             let xdp_attacher = libbpf_rs::Xdp::new(skel.progs.xdp_filter_prog.as_fd());
 
-            // Try attaching in Driver mode first, fallback to SKB mode
-            if xdp_attacher.attach(if_index, XdpFlags::DRV_MODE).is_err() {
-                xdp_attacher.attach(if_index, XdpFlags::SKB_MODE)?;
-            }
+            let try_attach = |flag, name| {
+                xdp_attacher.attach(if_index, flag).map(|_| {
+                    debug!(
+                        if_index = if_index,
+                        xdp_mode = name,
+                        "XDP program attached successfully"
+                    );
+                })
+            };
+            try_attach(XdpFlags::HW_MODE, "HW_MODE")
+                .or_else(|_| try_attach(XdpFlags::DRV_MODE, "DRV_MODE"))
+                .or_else(|_| try_attach(XdpFlags::SKB_MODE, "SKB_MODE"))?;
 
             Ok(Self {
                 xdp_if_index: if_index,
@@ -66,34 +77,32 @@ pub(crate) mod xdp_ip_filter {
         pub(crate) fn set_allowed_src_ip(
             &self,
             addr: IpAddr,
-            protocols: u8,
+            protocols: Protocols,
         ) -> Result<(), libbpf_rs::Error> {
             match addr {
                 IpAddr::V4(addr) => {
                     let key: [u8; 4] = addr.octets();
-                    let value: [u8; 1] = [protocols];
+                    let value: [u8; 1] = [protocols.bits()];
 
                     self.skel.maps.allowed_src_ips_map_v4.update(
                         &key,
                         &value,
                         libbpf_rs::MapFlags::ANY,
                     )?;
-
-                    debug!("Set IPv4 {addr} with protocol mask {protocols:#04x}");
                 }
                 IpAddr::V6(addr) => {
                     let key: [u8; 16] = addr.octets();
-                    let value: [u8; 1] = [protocols];
+                    let value: [u8; 1] = [protocols.bits()];
 
                     self.skel.maps.allowed_src_ips_map_v6.update(
                         &key,
                         &value,
                         libbpf_rs::MapFlags::ANY,
                     )?;
-
-                    debug!("Set IPv6 {addr} with protocol mask {protocols:#04x}");
                 }
             }
+
+            debug!("Allow source address {addr} with protocols {protocols:?}");
 
             Ok(())
         }
@@ -109,17 +118,17 @@ pub(crate) mod xdp_ip_filter {
         pub(crate) fn set_allowed_dst_port(
             &self,
             port: u16,
-            protocols: u8,
+            protocols: Protocols,
         ) -> Result<(), libbpf_rs::Error> {
             let key: [u8; 2] = port.to_be_bytes();
-            let value = [protocols];
+            let value: [u8; 1] = [protocols.bits()];
 
             self.skel
                 .maps
                 .allowed_dst_ports_map
                 .update(&key, &value, libbpf_rs::MapFlags::ANY)?;
 
-            debug!("Set port {port} with protocol mask {protocols:#04x}");
+            debug!("Allow destination port {port} with protocols {protocols:?}");
 
             Ok(())
         }
@@ -130,16 +139,11 @@ pub(crate) mod xdp_ip_filter {
         pub(crate) fn add_allowed_src_ip(
             &self,
             addr: IpAddr,
-            protocols: u8,
+            protocols: Protocols,
         ) -> Result<(), libbpf_rs::Error> {
             let current_proto = self.get_allowed_src_ip_proto(addr)?;
             let new_proto = current_proto | protocols;
             self.set_allowed_src_ip(addr, new_proto)?;
-
-            debug!(
-                "Added protocols {protocols:#04x} to {addr}. Old: {current_proto:#04x}, New: {new_proto:#04x}"
-            );
-
             Ok(())
         }
 
@@ -149,16 +153,11 @@ pub(crate) mod xdp_ip_filter {
         pub(crate) fn add_allowed_dst_port(
             &self,
             port: u16,
-            protocols: u8,
+            protocols: Protocols,
         ) -> Result<(), libbpf_rs::Error> {
             let current_proto = self.get_allowed_dst_port_proto(port)?;
             let new_proto = current_proto | protocols;
             self.set_allowed_dst_port(port, new_proto)?;
-
-            debug!(
-                "Added protocols {protocols:#04x} to port {port}. Old: {current_proto:#04x}, New: {new_proto:#04x}"
-            );
-
             Ok(())
         }
 
@@ -168,16 +167,11 @@ pub(crate) mod xdp_ip_filter {
         pub(crate) fn remove_allowed_src_ip(
             &self,
             addr: IpAddr,
-            protocols: u8,
+            protocols: Protocols,
         ) -> Result<(), libbpf_rs::Error> {
             let current_proto = self.get_allowed_src_ip_proto(addr)?;
-            let new_proto = current_proto & !protocols;
+            let new_proto = current_proto & protocols;
             self.set_allowed_src_ip(addr, new_proto)?;
-
-            debug!(
-                "Removed protocols {protocols:#04x} from {addr}. Old: {current_proto:#04x}, New: {new_proto:#04x}"
-            );
-
             Ok(())
         }
 
@@ -185,16 +179,11 @@ pub(crate) mod xdp_ip_filter {
         pub(crate) fn remove_allowed_dst_port(
             &self,
             port: u16,
-            protocols: u8,
+            protocols: Protocols,
         ) -> Result<(), libbpf_rs::Error> {
             let current_proto = self.get_allowed_dst_port_proto(port)?;
-            let new_proto = current_proto & !protocols;
+            let new_proto = current_proto & protocols;
             self.set_allowed_dst_port(port, new_proto)?;
-
-            debug!(
-                "Removed protocols {protocols:#04x} from port {port}. Old: {current_proto:#04x}, New: {new_proto:#04x}"
-            );
-
             Ok(())
         }
 
@@ -204,7 +193,7 @@ pub(crate) mod xdp_ip_filter {
         pub(crate) fn get_allowed_src_ip_proto(
             &self,
             addr: IpAddr,
-        ) -> Result<u8, libbpf_rs::Error> {
+        ) -> Result<Protocols, libbpf_rs::Error> {
             match addr {
                 IpAddr::V4(addr) => {
                     let key: [u8; 4] = addr.octets();
@@ -214,9 +203,9 @@ pub(crate) mod xdp_ip_filter {
                         .allowed_src_ips_map_v4
                         .lookup(&key, libbpf_rs::MapFlags::ANY)?
                     {
-                        Ok(value[0])
+                        Ok(Protocols::from_bits_truncate(value[0]))
                     } else {
-                        Ok(PROTO_NONE)
+                        Ok(Protocols::NONE)
                     }
                 }
                 IpAddr::V6(addr) => {
@@ -227,9 +216,9 @@ pub(crate) mod xdp_ip_filter {
                         .allowed_src_ips_map_v6
                         .lookup(&key, libbpf_rs::MapFlags::ANY)?
                     {
-                        Ok(value[0])
+                        Ok(Protocols::from_bits_truncate(value[0]))
                     } else {
-                        Ok(PROTO_NONE)
+                        Ok(Protocols::NONE)
                     }
                 }
             }
@@ -238,7 +227,10 @@ pub(crate) mod xdp_ip_filter {
         /// Retrieves the current protocol mask for a destination port.
         ///
         /// Returns `PROTO_NONE` (0) if no rule exists for the port.
-        pub(crate) fn get_allowed_dst_port_proto(&self, port: u16) -> Result<u8, libbpf_rs::Error> {
+        pub(crate) fn get_allowed_dst_port_proto(
+            &self,
+            port: u16,
+        ) -> Result<Protocols, libbpf_rs::Error> {
             let key: [u8; 2] = port.to_be_bytes();
             if let Some(value) = self
                 .skel
@@ -246,9 +238,9 @@ pub(crate) mod xdp_ip_filter {
                 .allowed_dst_ports_map
                 .lookup(&key, libbpf_rs::MapFlags::ANY)?
             {
-                Ok(value[0])
+                Ok(Protocols::from_bits_truncate(value[0]))
             } else {
-                Ok(PROTO_NONE)
+                Ok(Protocols::NONE)
             }
         }
 
@@ -295,4 +287,3 @@ pub(crate) mod xdp_ip_filter {
         }
     }
 }
-

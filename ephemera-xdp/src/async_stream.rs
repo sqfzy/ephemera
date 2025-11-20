@@ -1,4 +1,4 @@
-use crate::{bpf, reactor::XdpReactor};
+use crate::{bpf::Protocols, reactor::XdpReactor};
 use portpicker::pick_unused_port;
 use smoltcp::{
     iface::SocketHandle,
@@ -39,7 +39,7 @@ impl XdpTcpStream {
             while let Some(addr) = addrs.next() {
                 reactor_guard
                     .bpf
-                    .add_allowed_src_ip(addr.ip(), bpf::PROTO_TCP)
+                    .add_allowed_src_ip(addr.ip(), Protocols::TCP)
                     .map_err(|e| {
                         io::Error::other(format!("Failed to add {addr} to allowed IPs: {e}"))
                     })?;
