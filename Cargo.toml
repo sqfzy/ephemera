@@ -13,9 +13,28 @@ members = [
 ]
 
 [dependencies]
+# tokio = {version = "1.48", features = ["full"]}
+# itertools = "0.14.0"
+# futures = "0.3.31"
+# ephemera-strategy = { path = "./ephemera-strategy" }
+# rand = "0.9"
+# eyre = "0.6.12"
+# ndarray = { version = "0.16", features = ["serde", "rayon"] }
+# ndarray-stats = "0.6.0"
+# serde = { version = "1.0.228", features = ["derive"] }
+# serde_json = "1.0.145"
+
+[workspace.dependencies]
+ephemera-indicator = { path = "./ephemera-indicator" }
+ephemera-shared = { path = "./ephemera-shared" }
+ephemera-source = { path = "./ephemera-source" }
 ephemera-strategy = { path = "./ephemera-strategy" }
+ephemera-xdp = { path = "./ephemera-xdp" }
+
+tokio = { version = "1.48", features = ["full"] }
+itertools = "0.14.0"
+futures = "0.3.31"
+rand = "0.9"
 eyre = "0.6.12"
-ndarray = { version = "0.16", features = ["serde", "rayon"] }
-ndarray-stats = "0.6.0"
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.145"
+tracing = "0.1"
+tracing-subscriber = "0.3.19"

@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-ephemera-shared = { path = "../ephemera-shared" }
-tokio = { version = "1", features = ["full"] }
+ephemera-shared = { workspace = true }
+tokio = { workspace = true }
+
 thiserror = "2.0"
 serde = { version = "1.0.228", features = ["derive"] }
