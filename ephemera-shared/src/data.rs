@@ -1,6 +1,5 @@
 use crate::{IntervalSc, Symbol, TimestampMs};
-use rust_decimal::Decimal;
-use std::{cmp::Ordering, sync::Arc};
+use std::cmp::Ordering;
 
 pub const CANDLE_INTERVAL_1S: IntervalSc = 1;
 pub const CANDLE_INTERVAL_1M: IntervalSc = 60;
@@ -20,7 +19,7 @@ pub const CANDLE_INTERVAL_1W: IntervalSc = 604800;
 pub const CANDLE_INTERVAL_1MON: IntervalSc = 2592000;
 pub const CANDLE_INTERVAL_3MON: IntervalSc = 7776000;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, strum::EnumDiscriminants)]
+#[derive(Debug, Clone, PartialEq, strum::EnumDiscriminants)]
 #[strum_discriminants(vis(pub), name(MarketDataType))]
 pub enum MarketData {
     Trade(TradeData),
@@ -46,7 +45,7 @@ impl From<BookData> for MarketData {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TradeData {
     // /// 交易所分配的唯一交易ID
     // pub trade_id: u64,
@@ -57,25 +56,25 @@ pub struct TradeData {
     pub timestamp_ms: TimestampMs,
 
     /// 最新成交价。
-    pub price: Decimal,
+    pub price: f64,
 
     /// 最新成交的数量。
-    pub quantity: Decimal,
+    pub quantity: f64,
 
     /// 交易方向
     pub side: Side,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct CandleData {
     pub symbol: Symbol,
     pub interval_sc: IntervalSc,
     pub open_timestamp_ms: TimestampMs,
-    pub open: Decimal,
-    pub high: Decimal,
-    pub low: Decimal,
-    pub close: Decimal,
-    pub volume: Decimal,
+    pub open: f64,
+    pub high: f64,
+    pub low: f64,
+    pub close: f64,
+    pub volume: f64,
 }
 
 impl CandleData {
@@ -178,14 +177,14 @@ impl CandleData {
 }
 
 // PERF: 使用 Arc 避免频繁克隆或者使用数组
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct BookData {
     pub symbol: Symbol,
     pub timestamp: TimestampMs,
     /// (价格, 数量)
-    pub bids: Vec<(Decimal, Decimal)>,
+    pub bids: Vec<(f64, f64)>,
     /// (价格, 数量)
-    pub asks: Vec<(Decimal, Decimal)>,
+    pub asks: Vec<(f64, f64)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::EnumString)]

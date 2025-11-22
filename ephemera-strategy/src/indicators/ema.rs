@@ -1,19 +1,16 @@
 use super::Indicator;
-use rust_decimal::Decimal;
 
 /// 指数移动平均线 (Exponential Moving Average)
 #[derive(Debug, Clone)]
 pub struct EMA {
-    period: usize,
-    multiplier: Decimal,
-    value: Option<Decimal>,
+    multiplier: f64,
+    value: Option<f64>,
 }
 
 impl EMA {
     pub fn new(period: usize) -> Self {
-        let multiplier = Decimal::TWO / Decimal::from(period + 1);
+        let multiplier = 2.0 / (period + 1) as f64;
         Self {
-            period,
             multiplier,
             value: None,
         }
@@ -21,15 +18,13 @@ impl EMA {
 }
 
 impl Indicator for EMA {
-    type Input = Decimal;
-    type Output = Decimal;
+    type Input = f64;
+    type Output = f64;
 
     fn update(&mut self, input: Self::Input) -> Option<Self::Output> {
         self.value = Some(match self.value {
             None => input,
-            Some(prev_ema) => {
-                input * self.multiplier + prev_ema * (Decimal::ONE - self.multiplier)
-            }
+            Some(prev_ema) => input * self.multiplier + prev_ema * (1.0 - self.multiplier),
         });
         self.value
     }
@@ -46,16 +41,15 @@ impl Indicator for EMA {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal::dec;
 
     #[test]
     fn test_ema() {
         let mut ema = EMA::new(3);
-        
-        let v1 = ema.update(dec!(10)).unwrap();
-        assert_eq!(v1, dec!(10));
-        
-        let v2 = ema.update(dec!(20));
+
+        let v1 = ema.update(10.0).unwrap();
+        assert_eq!(v1, 10.0);
+
+        let v2 = ema.update(20.0);
         assert!(v2.is_some());
     }
 }

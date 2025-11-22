@@ -1,7 +1,6 @@
 use crate::indicators::RSI;
 use crate::{indicators::Indicator, strategies::Strategy};
 use ephemera_shared::{CandleData, Signal, Symbol};
-use rust_decimal::Decimal;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -17,18 +16,18 @@ pub enum RSIStrategyError {
 pub struct RSIStrategy {
     symbol: Symbol,
     rsi: RSI,
-    oversold_threshold: Decimal,
-    overbought_threshold: Decimal,
-    position_size: Decimal,
+    oversold_threshold: f64,
+    overbought_threshold: f64,
+    position_size: f64,
 }
 
 impl RSIStrategy {
     pub fn new(
         symbol: Symbol,
         period: usize,
-        oversold: Decimal,
-        overbought: Decimal,
-        position_size: Decimal,
+        oversold: f64,
+        overbought: f64,
+        position_size: f64,
     ) -> Self {
         Self {
             symbol,
@@ -40,8 +39,8 @@ impl RSIStrategy {
     }
 
     /// 默认参数：周期14，超卖30，超买70
-    pub fn default_with_symbol(symbol: Symbol, position_size: Decimal) -> Self {
-        Self::new(symbol, 14, dec!(30), dec!(70), position_size)
+    pub fn default_with_symbol(symbol: Symbol, position_size: f64) -> Self {
+        Self::new(symbol, 14, 30.0, 70.0, position_size)
     }
 }
 
@@ -90,8 +89,6 @@ impl Strategy for RSIStrategy {
     }
 }
 
-use rust_decimal::dec;
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -100,18 +97,18 @@ mod tests {
     #[tokio::test]
     async fn test_rsi_strategy() {
         let symbol = "BTC-USDT";
-        let mut strategy = RSIStrategy::default_with_symbol(symbol.into(), dec!(1.0));
+        let mut strategy = RSIStrategy::default_with_symbol(symbol.into(), 1.0);
 
         for i in 1..=20 {
             let candle = CandleData {
                 symbol: symbol.into(),
                 interval_sc: CANDLE_INTERVAL_1M,
                 open_timestamp_ms: i * 60000,
-                open: dec!(100) + Decimal::from(i),
-                high: dec!(101) + Decimal::from(i),
-                low: dec!(99) + Decimal::from(i),
-                close: dec!(100) + Decimal::from(i),
-                volume: dec!(1000),
+                open: 100.0 + i as f64,
+                high: 101.0 + i as f64,
+                low: 99.0 + i as f64,
+                close: 100.0 + i as f64,
+                volume: 1000.0,
             };
 
             let _ = strategy.on_data(candle).await;

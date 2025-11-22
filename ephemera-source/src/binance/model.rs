@@ -2,7 +2,6 @@
 
 use bytestring::ByteString;
 use ephemera_shared::*;
-use rust_decimal::Decimal;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
 
@@ -113,11 +112,11 @@ pub(super) struct RawTradeData {
 
     #[serde_as(as = "DisplayFromStr")]
     #[serde(rename = "p")]
-    pub(super) price: Decimal,
+    pub(super) price: f64,
 
     #[serde_as(as = "DisplayFromStr")]
     #[serde(rename = "q")]
-    pub(super) quantity: Decimal,
+    pub(super) quantity: f64,
 
     #[serde(rename = "T")]
     pub(super) trade_time: TimestampMs,
@@ -190,42 +189,35 @@ pub(super) struct RawCandleDataInner {
     #[serde(rename = "L")]
     pub(super) last_trade_id: u64,
 
-    #[serde_as(as = "DisplayFromStr")]
     #[serde(rename = "o")]
-    pub(super) open: Decimal,
+    pub(super) open: f64,
 
-    #[serde_as(as = "DisplayFromStr")]
     #[serde(rename = "c")]
-    pub(super) close: Decimal,
+    pub(super) close: f64,
 
-    #[serde_as(as = "DisplayFromStr")]
     #[serde(rename = "h")]
-    pub(super) high: Decimal,
+    pub(super) high: f64,
 
-    #[serde_as(as = "DisplayFromStr")]
     #[serde(rename = "l")]
-    pub(super) low: Decimal,
+    pub(super) low: f64,
 
-    #[serde_as(as = "DisplayFromStr")]
     #[serde(rename = "v")]
-    pub(super) base_asset_volume: Decimal,
+    pub(super) base_asset_volume: f64,
 
     #[serde(rename = "n")]
     pub(super) number_of_trades: u64,
     #[serde(rename = "x")]
     pub(super) is_closed: bool,
 
-    #[serde_as(as = "DisplayFromStr")]
     #[serde(rename = "q")]
-    pub(super) quote_asset_volume: Decimal,
+    pub(super) quote_asset_volume: f64,
 
-    #[serde_as(as = "DisplayFromStr")]
     #[serde(rename = "V")]
-    pub(super) taker_buy_base_asset_volume: Decimal,
+    pub(super) taker_buy_base_asset_volume: f64,
 
     #[serde_as(as = "DisplayFromStr")]
     #[serde(rename = "Q")]
-    pub(super) taker_buy_quote_asset_volume: Decimal,
+    pub(super) taker_buy_quote_asset_volume: f64,
 
     pub(super) ignored: ByteString,
 }
@@ -245,11 +237,11 @@ pub(super) struct RawBookData {
 
     #[serde_as(as = "Vec<(DisplayFromStr, DisplayFromStr)>")]
     #[serde(rename = "b")]
-    pub(super) bids: Vec<(Decimal, Decimal)>,
+    pub(super) bids: Vec<(f64, f64)>,
 
     #[serde_as(as = "Vec<(DisplayFromStr, DisplayFromStr)>")]
     #[serde(rename = "a")]
-    pub(super) asks: Vec<(Decimal, Decimal)>,
+    pub(super) asks: Vec<(f64, f64)>,
 }
 
 impl TryFrom<WsDataResponse<RawBookData>> for BookData {
@@ -273,10 +265,10 @@ pub(super) struct RawBookSnapshotData {
     pub(super) last_update_id: u64,
 
     #[serde_as(as = "Vec<(DisplayFromStr, DisplayFromStr)>")]
-    pub(super) bids: Vec<(Decimal, Decimal)>,
+    pub(super) bids: Vec<(f64, f64)>,
 
     #[serde_as(as = "Vec<(DisplayFromStr, DisplayFromStr)>")]
-    pub(super) asks: Vec<(Decimal, Decimal)>,
+    pub(super) asks: Vec<(f64, f64)>,
 }
 
 impl TryFrom<WsDataResponse<RawBookSnapshotData>> for BookData {

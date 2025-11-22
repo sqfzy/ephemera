@@ -1,5 +1,4 @@
 use crate::Symbol;
-use rust_decimal::Decimal;
 
 /// 交易信号
 #[derive(Debug, Clone, PartialEq)]
@@ -7,15 +6,15 @@ pub enum Signal {
     /// 买入信号
     Buy {
         symbol: Symbol,
-        price: Decimal,
-        size: Decimal,
+        price: f64,
+        size: f64,
         reason: String,
     },
     /// 卖出信号
     Sell {
         symbol: Symbol,
-        price: Decimal,
-        size: Decimal,
+        price: f64,
+        size: f64,
         reason: String,
     },
     /// 持有/无操作
@@ -23,7 +22,7 @@ pub enum Signal {
 }
 
 impl Signal {
-    pub fn buy(symbol: Symbol, price: Decimal, size: Decimal, reason: impl Into<String>) -> Self {
+    pub fn buy(symbol: Symbol, price: f64, size: f64, reason: impl Into<String>) -> Self {
         Self::Buy {
             symbol,
             price,
@@ -32,7 +31,7 @@ impl Signal {
         }
     }
 
-    pub fn sell(symbol: Symbol, price: Decimal, size: Decimal, reason: impl Into<String>) -> Self {
+    pub fn sell(symbol: Symbol, price: f64, size: f64, reason: impl Into<String>) -> Self {
         Self::Sell {
             symbol,
             price,

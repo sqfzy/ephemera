@@ -3,8 +3,6 @@ use crate::{
     strategies::Strategy,
 };
 use ephemera_shared::{CandleData, Signal, Symbol};
-use rust_decimal::Decimal;
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -20,18 +18,13 @@ pub struct MACrossStrategy {
     symbol: Symbol,
     fast_ma: MA,
     slow_ma: MA,
-    prev_fast: Option<Decimal>,
-    prev_slow: Option<Decimal>,
-    position_size: Decimal,
+    prev_fast: Option<f64>,
+    prev_slow: Option<f64>,
+    position_size: f64,
 }
 
 impl MACrossStrategy {
-    pub fn new(
-        symbol: Symbol,
-        fast_period: usize,
-        slow_period: usize,
-        position_size: Decimal,
-    ) -> Self {
+    pub fn new(symbol: Symbol, fast_period: usize, slow_period: usize, position_size: f64) -> Self {
         Self {
             symbol,
             fast_ma: MA::new(fast_period),
@@ -104,12 +97,11 @@ impl Strategy for MACrossStrategy {
 mod tests {
     use super::*;
     use ephemera_shared::CANDLE_INTERVAL_1M;
-    use rust_decimal::dec;
 
     #[tokio::test]
     async fn test_ma_cross_strategy() {
         let symbol = "BTC-USDT";
-        let mut strategy = MACrossStrategy::new(symbol.into(), 5, 10, dec!(1.0));
+        let mut strategy = MACrossStrategy::new(symbol.into(), 5, 10, 1.0);
 
         // 模拟上升趋势
         for i in 1..=20 {
@@ -117,11 +109,11 @@ mod tests {
                 symbol: symbol.into(),
                 interval_sc: CANDLE_INTERVAL_1M,
                 open_timestamp_ms: i * 60000,
-                open: dec!(100) + Decimal::from(i),
-                high: dec!(101) + Decimal::from(i),
-                low: dec!(99) + Decimal::from(i),
-                close: dec!(100) + Decimal::from(i),
-                volume: dec!(1000),
+                open: 100.0 + i as f64,
+                high: 101.0 + i as f64,
+                low: 99.0 + i as f64,
+                close: 100.0 + i as f64,
+                volume: 1000.0,
             };
 
             let result = strategy.on_data(candle).await.unwrap();
@@ -131,3 +123,4 @@ mod tests {
         }
     }
 }
+

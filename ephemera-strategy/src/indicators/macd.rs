@@ -1,6 +1,5 @@
 use super::Indicator;
 use crate::indicators::EMA;
-use rust_decimal::Decimal;
 
 /// MACD指标
 #[derive(Debug, Clone)]
@@ -8,14 +7,14 @@ pub struct MACD {
     fast_ema: EMA,
     slow_ema: EMA,
     signal_ema: EMA,
-    macd_line: Option<Decimal>,
+    macd_line: Option<f64>,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct MACDValue {
-    pub macd: Decimal,
-    pub signal: Decimal,
-    pub histogram: Decimal,
+    pub macd: f64,
+    pub signal: f64,
+    pub histogram: f64,
 }
 
 impl MACD {
@@ -27,15 +26,16 @@ impl MACD {
             macd_line: None,
         }
     }
+}
 
-    /// 默认参数：12, 26, 9
-    pub fn default() -> Self {
+impl Default for MACD {
+    fn default() -> Self {
         Self::new(12, 26, 9)
     }
 }
 
 impl Indicator for MACD {
-    type Input = Decimal;
+    type Input = f64;
     type Output = MACDValue;
 
     fn update(&mut self, price: Self::Input) -> Option<Self::Output> {
@@ -78,14 +78,13 @@ impl Indicator for MACD {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal::dec;
 
     #[test]
     fn test_macd() {
         let mut macd = MACD::default();
 
         for i in 1..=30 {
-            let price = dec!(100) + Decimal::from(i);
+            let price = 100.0 + i as f64;
             let result = macd.update(price);
             if i >= 26 {
                 assert!(result.is_some());

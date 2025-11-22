@@ -1,39 +1,38 @@
 use ephemera_shared::Symbol;
-use rust_decimal::Decimal;
 use std::collections::HashMap;
 
 /// 持仓信息
 #[derive(Debug, Clone, Default)]
 pub struct Position {
     pub symbol: Symbol,
-    pub size: Decimal,
-    pub avg_price: Decimal,
+    pub size: f64,
+    pub avg_price: f64,
 }
 
 impl Position {
     pub fn new(symbol: Symbol) -> Self {
         Self {
             symbol,
-            size: Decimal::ZERO,
-            avg_price: Decimal::ZERO,
+            size: 0.0,
+            avg_price: 0.0,
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.size.is_zero()
+        self.size == 0.0
     }
 
-    pub fn value(&self, current_price: Decimal) -> Decimal {
+    pub fn value(&self, current_price: f64) -> f64 {
         self.size * current_price
     }
 
-    pub fn pnl(&self, current_price: Decimal) -> Decimal {
+    pub fn pnl(&self, current_price: f64) -> f64 {
         self.size * (current_price - self.avg_price)
     }
 
-    pub fn pnl_pct(&self, current_price: Decimal) -> Decimal {
-        if self.avg_price.is_zero() {
-            Decimal::ZERO
+    pub fn pnl_pct(&self, current_price: f64) -> f64 {
+        if self.avg_price == 0.0 {
+            0.0
         } else {
             (current_price - self.avg_price) / self.avg_price
         }
@@ -46,13 +45,13 @@ pub struct StrategyContext {
     /// 持仓
     positions: HashMap<Symbol, Position>,
     /// 可用资金
-    pub available_balance: Decimal,
+    pub available_balance: f64,
     /// 总资产
-    pub total_balance: Decimal,
+    pub total_balance: f64,
 }
 
 impl StrategyContext {
-    pub fn new(initial_balance: Decimal) -> Self {
+    pub fn new(initial_balance: f64) -> Self {
         Self {
             positions: HashMap::new(),
             available_balance: initial_balance,
@@ -68,13 +67,13 @@ impl StrategyContext {
         self.positions.get_mut(symbol)
     }
 
-    pub fn add_position(&mut self, symbol: Symbol, size: Decimal, price: Decimal) {
+    pub fn add_position(&mut self, symbol: Symbol, size: f64, price: f64) {
         let position = self
             .positions
             .entry(symbol.clone())
             .or_insert_with(|| Position::new(symbol));
 
-        if position.size.is_zero() {
+        if position.size == 0.0 {
             position.avg_price = price;
             position.size = size;
         } else {
@@ -84,7 +83,7 @@ impl StrategyContext {
         }
     }
 
-    pub fn reduce_position(&mut self, symbol: &Symbol, size: Decimal) -> bool {
+    pub fn reduce_position(&mut self, symbol: &Symbol, size: f64) -> bool {
         if let Some(position) = self.positions.get_mut(symbol)
             && position.size >= size
         {

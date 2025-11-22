@@ -1,26 +1,25 @@
-use crate::indicators::MA;
 use super::Indicator;
-use rust_decimal::Decimal;
+use crate::indicators::MA;
 use std::collections::VecDeque;
 
 /// 布林带指标
 #[derive(Debug, Clone)]
-pub struct BollingerBands {
+pub struct BB {
     period: usize,
-    std_dev_multiplier: Decimal,
+    std_dev_multiplier: f64,
     ma: MA,
-    values: VecDeque<Decimal>,
+    values: VecDeque<f64>,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct BollingerValue {
-    pub upper: Decimal,
-    pub middle: Decimal,
-    pub lower: Decimal,
+    pub upper: f64,
+    pub middle: f64,
+    pub lower: f64,
 }
 
-impl BollingerBands {
-    pub fn new(period: usize, std_dev_multiplier: Decimal) -> Self {
+impl BB {
+    pub fn new(period: usize, std_dev_multiplier: f64) -> Self {
         Self {
             period,
             std_dev_multiplier,
@@ -29,38 +28,41 @@ impl BollingerBands {
         }
     }
 
-    /// 默认参数：周期20，标准差倍数2
-    pub fn default() -> Self {
-        Self::new(20, Decimal::TWO)
-    }
-
-    fn calculate_std_dev(&self, mean: Decimal) -> Decimal {
+    fn calculate_std_dev(&self, mean: f64) -> f64 {
         if self.values.len() < self.period {
-            return Decimal::ZERO;
+            return 0.0;
         }
 
-        let variance: Decimal = self.values
+        let variance: f64 = self
+            .values
             .iter()
             .map(|&x| {
                 let diff = x - mean;
                 diff * diff
             })
-            .sum::<Decimal>() / Decimal::from(self.period);
+            .sum::<f64>()
+            / self.period as f64;
 
         // 简化的平方根计算（使用牛顿法）
-        let mut sqrt = variance / Decimal::TWO;
+        let mut sqrt = variance / 2.0;
         for _ in 0..10 {
-            if sqrt.is_zero() {
+            if sqrt == 0.0 {
                 break;
             }
-            sqrt = (sqrt + variance / sqrt) / Decimal::TWO;
+            sqrt = (sqrt + variance / sqrt) / 2.0;
         }
         sqrt
     }
 }
 
-impl Indicator for BollingerBands {
-    type Input = Decimal;
+impl Default for BB {
+    fn default() -> Self {
+        Self::new(20, 2.0)
+    }
+}
+
+impl Indicator for BB {
+    type Input = f64;
     type Output = BollingerValue;
 
     fn update(&mut self, price: Self::Input) -> Option<Self::Output> {
@@ -101,14 +103,13 @@ impl Indicator for BollingerBands {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal::dec;
 
     #[test]
     fn test_bollinger_bands() {
-        let mut bb = BollingerBands::default();
-        
+        let mut bb = BB::default();
+
         for i in 1..=25 {
-            let price = dec!(100) + Decimal::from(i);
+            let price = 100.0 + i as f64;
             let result = bb.update(price);
             if i >= 20 {
                 assert!(result.is_some());

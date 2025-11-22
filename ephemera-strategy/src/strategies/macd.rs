@@ -1,7 +1,6 @@
 use crate::indicators::MACD;
 use crate::{indicators::Indicator, strategies::Strategy};
 use ephemera_shared::{CandleData, Signal, Symbol};
-use rust_decimal::Decimal;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -17,12 +16,12 @@ pub enum MACDStrategyError {
 pub struct MACDStrategy {
     symbol: Symbol,
     macd: MACD,
-    prev_histogram: Option<Decimal>,
-    position_size: Decimal,
+    prev_histogram: Option<f64>,
+    position_size: f64,
 }
 
 impl MACDStrategy {
-    pub fn new(symbol: Symbol, position_size: Decimal) -> Self {
+    pub fn new(symbol: Symbol, position_size: f64) -> Self {
         Self {
             symbol,
             macd: MACD::default(),
@@ -50,7 +49,7 @@ impl Strategy for MACDStrategy {
         let signal = match self.prev_histogram {
             Some(prev_hist) => {
                 // 柱状图从负转正：MACD上穿信号线
-                if prev_hist <= Decimal::ZERO && macd_value.histogram > Decimal::ZERO {
+                if prev_hist <= 0.0 && macd_value.histogram > 0.0 {
                     Signal::buy(
                         self.symbol.clone(),
                         candle.close,
@@ -59,7 +58,7 @@ impl Strategy for MACDStrategy {
                     )
                 }
                 // 柱状图从正转负：MACD下穿信号线
-                else if prev_hist >= Decimal::ZERO && macd_value.histogram < Decimal::ZERO {
+                else if prev_hist >= 0.0 && macd_value.histogram < 0.0 {
                     Signal::sell(
                         self.symbol.clone(),
                         candle.close,
@@ -92,26 +91,26 @@ impl Strategy for MACDStrategy {
 mod tests {
     use super::*;
     use ephemera_shared::CANDLE_INTERVAL_1M;
-    use rust_decimal::dec;
 
     #[tokio::test]
     async fn test_macd_strategy() {
         let symbol = "BTC-USDT";
-        let mut strategy = MACDStrategy::new(symbol.into(), dec!(1.0));
+        let mut strategy = MACDStrategy::new(symbol.into(), 1.0);
 
         for i in 1..=50 {
             let candle = CandleData {
                 symbol: symbol.into(),
                 interval_sc: CANDLE_INTERVAL_1M,
                 open_timestamp_ms: i * 60000,
-                open: dec!(100) + Decimal::from(i),
-                high: dec!(101) + Decimal::from(i),
-                low: dec!(99) + Decimal::from(i),
-                close: dec!(100) + Decimal::from(i),
-                volume: dec!(1000),
+                open: 100.0 + i as f64,
+                high: 101.0 + i as f64,
+                low: 99.0 + i as f64,
+                close: 100.0 + i as f64,
+                volume: 1000.0,
             };
 
             let _ = strategy.on_data(candle).await;
         }
     }
 }
+

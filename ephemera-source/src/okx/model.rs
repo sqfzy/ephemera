@@ -4,7 +4,6 @@ use bytestring::ByteString;
 use ephemera_shared::*;
 use eyre::Result;
 use itertools::Itertools;
-use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::{fmt::Debug, str::FromStr};
 use strum::{AsRefStr, Display, EnumString};
@@ -88,8 +87,8 @@ impl TryFrom<WsDataResponse<RawTradeData>> for Vec<TradeData> {
             .into_iter()
             .map(|trade| {
                 let timestamp = trade.ts.parse()?;
-                let price = trade.px.parse::<Decimal>()?;
-                let quantity = trade.sz.parse::<Decimal>()?;
+                let price = trade.px.parse::<f64>()?;
+                let quantity = trade.sz.parse::<f64>()?;
                 let side = Side::from_str(trade.side.as_ref())?;
 
                 Ok(TradeData {
@@ -108,12 +107,12 @@ impl TryFrom<WsDataResponse<OkxBookData>> for Vec<BookData> {
     type Error = eyre::Error;
 
     fn try_from(value: WsDataResponse<OkxBookData>) -> Result<Self, Self::Error> {
-        let parse_levels = |levels: Vec<Level>| -> Result<Vec<(Decimal, Decimal)>> {
+        let parse_levels = |levels: Vec<Level>| -> Result<Vec<(f64, f64)>> {
             levels
                 .into_iter()
                 .map(|(price_str, size_str, _, _)| {
-                    let price = price_str.parse::<Decimal>()?;
-                    let size = size_str.parse::<Decimal>()?;
+                    let price = price_str.parse::<f64>()?;
+                    let size = size_str.parse::<f64>()?;
                     Ok((price, size))
                 })
                 .collect()
