@@ -1,7 +1,7 @@
 pub mod async_listener;
 pub mod async_stream;
-pub mod reactor;
 pub mod bpf;
+pub mod reactor;
 
 pub use async_listener::XdpTcpListener;
 pub use async_stream::XdpTcpStream;

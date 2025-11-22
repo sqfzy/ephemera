@@ -117,7 +117,7 @@ static __always_inline int check_l4_port(struct xdp_md *ctx,
   if (allowed_protocols ) {
     // 检查协议是否被允许
     if (*allowed_protocols  & proto_mask) {
-      return bpf_redirect_map(&xsks_map, 0, XDP_PASS);
+      return bpf_redirect_map(&xsks_map, ctx->rx_queue_index, XDP_PASS);
     } else {
       // 端口匹配但协议不匹配，丢弃数据包
       return XDP_DROP;
@@ -149,7 +149,7 @@ int xdp_filter_prog(struct xdp_md *ctx) {
 
   // 处理 ARP（始终重定向到用户空间）
   if (eth_type == bpf_htons(ETH_P_ARP)) {
-    return bpf_redirect_map(&xsks_map, 0, XDP_PASS);
+    return bpf_redirect_map(&xsks_map, ctx->rx_queue_index, XDP_PASS);
   }
 
   // ========================================================================
@@ -169,7 +169,7 @@ int xdp_filter_prog(struct xdp_md *ctx) {
     
     if (allowed_protos) {
       if (*allowed_protos & proto_mask) {
-        return bpf_redirect_map(&xsks_map, 0, XDP_PASS);
+        return bpf_redirect_map(&xsks_map, ctx->rx_queue_index, XDP_PASS);
       } else {
         return XDP_DROP;
       }
@@ -200,7 +200,7 @@ int xdp_filter_prog(struct xdp_md *ctx) {
     
     if (allowed_protos) {
       if (*allowed_protos & proto_mask) {
-        return bpf_redirect_map(&xsks_map, 0, XDP_PASS);
+        return bpf_redirect_map(&xsks_map, ctx->rx_queue_index, XDP_PASS);
       } else {
         return XDP_DROP;
       }

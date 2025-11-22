@@ -11,6 +11,25 @@ bitflags::bitflags! {
     }
 }
 
+pub fn transfer_flags(flags: xsk_rs::config::XdpFlags) -> libbpf_rs::XdpFlags {
+    let mut libbpf_flags = libbpf_rs::XdpFlags::NONE;
+
+    if flags.contains(xsk_rs::config::XdpFlags::XDP_FLAGS_SKB_MODE) {
+        libbpf_flags |= libbpf_rs::XdpFlags::SKB_MODE;
+    }
+    if flags.contains(xsk_rs::config::XdpFlags::XDP_FLAGS_DRV_MODE) {
+        libbpf_flags |= libbpf_rs::XdpFlags::DRV_MODE;
+    }
+    if flags.contains(xsk_rs::config::XdpFlags::XDP_FLAGS_HW_MODE) {
+        libbpf_flags |= libbpf_rs::XdpFlags::HW_MODE;
+    }
+    if flags.contains(xsk_rs::config::XdpFlags::XDP_FLAGS_UPDATE_IF_NOEXIST) {
+        libbpf_flags |= libbpf_rs::XdpFlags::UPDATE_IF_NOEXIST;
+    }
+
+    libbpf_flags
+}
+
 pub(crate) mod xdp_ip_filter {
     use super::*;
     use libbpf_rs::XdpFlags;
@@ -36,7 +55,7 @@ pub(crate) mod xdp_ip_filter {
         ///
         /// Attempts to attach in native driver mode (DRV_MODE) first for performance.
         /// Falls back to generic SKB mode (SKB_MODE) if the driver doesn't support XDP.
-        pub(crate) fn new(if_index: i32) -> Result<Self, libbpf_rs::Error> {
+        pub(crate) fn new(if_index: i32, xdp_flags: XdpFlags) -> Result<Self, libbpf_rs::Error> {
             let skel_builder = XdpFilterSkelBuilder::default();
 
             let open_object = Box::leak(Box::new(MaybeUninit::uninit()));
@@ -45,19 +64,9 @@ pub(crate) mod xdp_ip_filter {
             let skel: XdpFilterSkel<'static> = open_skel.load()?;
 
             let xdp_attacher = libbpf_rs::Xdp::new(skel.progs.xdp_filter_prog.as_fd());
+            xdp_attacher.attach(if_index, xdp_flags)?;
 
-            let try_attach = |flag, name| {
-                xdp_attacher.attach(if_index, flag).map(|_| {
-                    debug!(
-                        if_index = if_index,
-                        xdp_mode = name,
-                        "XDP program attached successfully"
-                    );
-                })
-            };
-            try_attach(XdpFlags::HW_MODE, "HW_MODE")
-                .or_else(|_| try_attach(XdpFlags::DRV_MODE, "DRV_MODE"))
-                .or_else(|_| try_attach(XdpFlags::SKB_MODE, "SKB_MODE"))?;
+            debug!(if_index = if_index, "XDP program attached successfully");
 
             Ok(Self {
                 xdp_if_index: if_index,

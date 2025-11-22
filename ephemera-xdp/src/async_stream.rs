@@ -190,7 +190,7 @@ impl AsyncWrite for XdpTcpStream {
 #[serial_test::serial]
 mod tests {
     use super::*;
-    use crate::{async_listener::XdpTcpListener, reactor::run_reactor_background, test_utils::*};
+    use crate::{async_listener::XdpTcpListener, test_utils::*};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     #[tokio::test]
@@ -199,9 +199,6 @@ mod tests {
 
         let reactor1 = create_reactor1();
         let reactor2 = create_reactor2();
-
-        run_reactor_background(reactor1.clone());
-        run_reactor_background(reactor2.clone());
 
         let port = 12345;
 
@@ -227,9 +224,6 @@ mod tests {
 
         let reactor1 = create_reactor1();
         let reactor2 = create_reactor2();
-
-        run_reactor_background(reactor1.clone());
-        run_reactor_background(reactor2.clone());
 
         let port = 12345;
         let msg = b"Hello";

@@ -9,445 +9,157 @@ use std::{
     num::NonZeroU32,
     os::fd::{AsRawFd, RawFd},
 };
-use tracing::{debug, trace};
+use tracing::trace;
 use xsk_rs::{
     CompQueue, FillQueue, FrameDesc,
-    config::{BindFlags, LibxdpFlags, SocketConfig, UmemConfig},
+    config::{BindFlags, LibxdpFlags, SocketConfig, UmemConfig, XdpFlags},
     socket::{RxQueue, Socket as XskSocket, TxQueue},
     umem::Umem,
 };
 
+// pub(crate) fn get_default_if_name() -> io::Result<String> {
+//     netdev::get_default_interface().map_or_else(
+//         |e| {
+//             Err(io::Error::new(
+//                 io::ErrorKind::NotFound,
+//                 format!("Failed to get default interface: {}", e),
+//             ))
+//         },
+//         |interface| interface.name,
+//     )
+// }
+
+#[derive(Debug, Clone, bon::Builder)]
+pub struct XdpDeviceConfig<const FC: usize = 1024> {
+    /// Network interface name (e.g., "eth0")
+    /// Default behavior: use the system's default network interface name or empty string if not found
+    #[builder(into, default = netdev::get_default_interface().map(|i|i.name).unwrap_or_default())]
+    pub if_name: String,
+
+    /// Network card queue ID
+    #[builder(default = 0)]
+    pub queue_id: u32,
+
+    /// Rx batch threshold
+    #[builder(default = 512)]
+    pub rx_batch_threshold: usize,
+
+    /// Tx batch threshold (defaults to half of the frame count)
+    #[builder(default = FC / 2)]
+    pub tx_batch_threshold: usize,
+
+    /// Whether to use Huge Pages
+    #[builder(default = false)]
+    pub use_huge_pages: bool,
+
+    /// Libxdp specific flags
+    pub libxdp_flags: Option<LibxdpFlags>,
+
+    /// XDP flags (e.g., SKB_MODE vs DRV_MODE)
+    #[builder(default = XdpFlags::XDP_FLAGS_SKB_MODE)]
+    pub xdp_flags: XdpFlags,
+
+    /// Basic bind flags
+    #[builder(default = BindFlags::XDP_USE_NEED_WAKEUP)]
+    pub bind_flags: BindFlags,
+}
+
+impl<const FC: usize> TryFrom<XdpDeviceConfig<FC>> for XdpDevice<FC> {
+    type Error = Box<dyn Error>;
+
+    fn try_from(config: XdpDeviceConfig<FC>) -> Result<Self, Self::Error> {
+        XdpDevice::new(config)
+    }
+}
+
 #[derive(Debug)]
-pub(crate) struct XdpDevice<const FC: usize = 1024> {
-    pub(crate) reader: XdpReader<FC>,
-    pub(crate) writer: XdpWriter<FC>,
-    pub(crate) umem: Umem,
-    pub(crate) fd: RawFd,
+pub struct XdpDevice<const FC: usize = 1024> {
+    reader: XdpReader<FC>,
+    writer: XdpWriter<FC>,
+    umem: Umem,
+    fd: RawFd,
+    config: XdpDeviceConfig<FC>,
 }
 
 impl<const FC: usize> XdpDevice<FC> {
-    pub(crate) fn new(if_name: &str) -> Result<Self, Box<dyn Error>> {
-        // PERF:
-        let sk_conf = SocketConfig::builder()
-            .bind_flags(BindFlags::XDP_USE_NEED_WAKEUP | BindFlags::XDP_ZEROCOPY)
-            .libxdp_flags(LibxdpFlags::XSK_LIBXDP_FLAGS_INHIBIT_PROG_LOAD) // 使用自定义的XDP程序
-            .build();
+    pub fn new(config: XdpDeviceConfig<FC>) -> Result<Self, Box<dyn Error>> {
+        let XdpDeviceConfig {
+            if_name,
+            queue_id,
+            rx_batch_threshold,
+            tx_batch_threshold,
+            use_huge_pages,
+            libxdp_flags,
+            xdp_flags,
+            bind_flags,
+        } = config.clone();
 
-        let res = Self::new_with_config(if_name, sk_conf);
-        if res.is_ok() {
-            return res;
+        // 1. Parse interface name (xsk_rs requires a specific Interface type)
+        let if_name_parsed = if_name
+            .parse()
+            .map_err(|e| format!("Failed to parse interface name: {}", e))?;
+
+        // 2. Calculate total frame count (Rx + Tx)
+        let total_frame_count =
+            NonZeroU32::new((FC * 2) as u32).ok_or("FRAME_COUNT (FC) cannot be zero")?;
+
+        // 3. Create Umem (User space memory area)
+        let (umem, descs) = Umem::new(UmemConfig::default(), total_frame_count, use_huge_pages)?;
+
+        // 4. Split frame descriptors (Rx first half, Tx second half)
+        let rx_fds: [FrameDesc; FC] = descs[..FC]
+            .try_into()
+            .expect("Failed to split frame descriptors for Rx");
+        let tx_fds: [FrameDesc; FC] = descs[FC..]
+            .try_into()
+            .expect("Failed to split frame descriptors for Tx");
+
+        // 5. Configure Socket
+        let mut socket_config_builder = SocketConfig::builder();
+
+        if let Some(flags) = libxdp_flags {
+            socket_config_builder.libxdp_flags(flags);
         }
 
-        let sk_conf = SocketConfig::builder()
-            .bind_flags(BindFlags::XDP_USE_NEED_WAKEUP)
-            .libxdp_flags(LibxdpFlags::XSK_LIBXDP_FLAGS_INHIBIT_PROG_LOAD) // 使用自定义的XDP程序
+        let socket_config = socket_config_builder
+            .xdp_flags(xdp_flags)
+            .bind_flags(bind_flags)
             .build();
 
-        Self::new_with_config(if_name, sk_conf)
-    }
-
-    pub(crate) fn new_with_config(
-        if_name: &str,
-        sk_conf: SocketConfig,
-    ) -> Result<Self, Box<dyn Error>> {
-        // INFO: 目前XDP Device 只实现了单个网卡队列的处理逻辑，并指定处理的队列ID为0
-        const QUEUE_ID: u32 = 0;
-
-        let if_name_parsed = if_name.parse()?;
-        let frame_count = (FC * 2) as u32;
-
-        // PERF: huge page
-        let (umem, descs) = Umem::new(
-            UmemConfig::default(),
-            NonZeroU32::new(frame_count).expect("FRAME_COUNT must be non-zero"),
-            false,
-        )?;
-        let rx_fds: [FrameDesc; FC] = descs[..FC].try_into().unwrap();
-        let tx_fds: [FrameDesc; FC] = descs[FC..].try_into().unwrap();
-
-        // TODO: 使用相同的if_name创建多个XskSocket是不安全的，需要封装来避免
+        // 6. Create AF_XDP Socket
         let (tx_q, rx_q, fq_and_cq) =
-            unsafe { XskSocket::new(sk_conf, &umem, &if_name_parsed, QUEUE_ID) }?;
+            unsafe { XskSocket::new(socket_config, &umem, &if_name_parsed, queue_id) }?;
 
-        let (mut fq, cq) = fq_and_cq.expect("UMEM is not shared, fq and cq should exist");
+        // fq (Fill Queue) and cq (Completion Queue) must exist because we are not sharing umem
+        let (mut fq, cq) = fq_and_cq.ok_or("FillQueue and CompQueue not found (Shared Umem?)")?;
 
+        // 7. Initialize Fill Queue
+        // Must first put Rx frame descriptors into Fill Queue, telling the kernel these frames can be used to receive data
         unsafe {
-            // 初始化，所有rx_fds，内核都可用来读
             fq.produce(&rx_fds);
-        };
+        }
 
-        debug!(sk_conf = ?sk_conf);
+        let fd = tx_q.fd().as_raw_fd();
+
+        let reader = XdpReader::new(rx_q, rx_fds, fq, rx_batch_threshold);
+        let writer = XdpWriter::new(tx_q, tx_fds, cq, tx_batch_threshold);
 
         Ok(Self {
-            fd: tx_q.fd().as_raw_fd(),
+            reader,
+            writer,
             umem,
-            reader: XdpReader {
-                rx_q,
-                rx_fds,
-                fq,
-                kernel_can_write_pos: 0,
-                user_can_recv_pos: 0,
-                user_has_recv_pos: 0,
-                user_can_recv_len: 0,
-                user_has_recv_len: 0,
-            },
-            writer: XdpWriter {
-                tx_q,
-                tx_fds,
-                cq,
-                user_can_write_pos: 0,
-                user_has_write_pos: 0,
-                kernel_has_send_pos: 0,
-                user_has_write_len: 0,
-                kernel_has_send_len: 0,
-            },
+            fd,
+            config,
         })
     }
 
+    pub fn config(&self) -> &XdpDeviceConfig<FC> {
+        &self.config
+    }
+
+    /// Flush the transmit queue, submitting all pending data to the kernel
     pub(crate) fn flush(&mut self) -> io::Result<usize> {
         self.writer.user_produce_and_wakeup()
-    }
-}
-
-/// ```txt
-/// |____user_has_recv____|____user_can_recv____|____kernel_can_write____
-/// ```
-#[derive(Debug)]
-pub(crate) struct XdpReader<const FC: usize> {
-    pub(crate) rx_q: RxQueue,
-    pub(crate) rx_fds: [FrameDesc; FC],
-    // 用户在接收数据前，需要向内核produce fd
-    pub(crate) fq: FillQueue,
-
-    /// “内核可写”区的起始点。也是“用户可接收”区的终点。
-    /// 内核可写意味着内核可用该 fd 来接收数据。
-    kernel_can_write_pos: usize,
-
-    /// “用户可接收”区的起始点。也是“用户已接收”区的终点。
-    user_can_recv_pos: usize,
-
-    /// “用户已接收”区的起始点。也是“内核可写”区的终点。
-    user_has_recv_pos: usize,
-
-    // 为了区分 empty 和 full，引入长度
-    //
-    /// “用户可接收” -> “内核可写”
-    user_can_recv_len: usize,
-
-    /// “内核可写” -> “用户已接收”
-    user_has_recv_len: usize,
-}
-
-impl<const FC: usize> XdpReader<FC> {
-    /// “内核可写”区域的长度 (空闲空间，待内核写入)
-    pub(crate) const fn kernel_can_write_len(&self) -> usize {
-        self.rx_fds.len() - self.user_can_recv_len - self.user_has_recv_len
-    }
-
-    /// “用户可读”区域的长度 (已有数据，待用户读取)
-    pub(crate) const fn user_can_recv_len(&self) -> usize {
-        self.user_can_recv_len
-    }
-
-    /// “用户已接收”区域的长度 (无效数据，待内核回收)
-    pub(crate) const fn user_has_recv_len(&self) -> usize {
-        // CHANGED: 现在直接返回存储的字段
-        self.user_has_recv_len
-    }
-
-    /// 用户向内核提供用户已经用完的所有 fd。
-    /// “用户已接收”区域 -> “内核可写”区域
-    pub(crate) fn user_produce(&mut self) -> usize {
-        let mut n_produce = 0;
-
-        // 用户已接收区
-        let (s1, s2) = advance_get_mut(
-            self.user_has_recv_len(),
-            self.user_has_recv_pos,
-            self.user_can_recv_pos,
-            &mut self.rx_fds,
-        );
-
-        if !s1.is_empty() {
-            let n = unsafe { self.fq.produce(s1) };
-            // kernel_can_write_len update automatically
-            self.user_has_recv_len -= n;
-            self.user_has_recv_pos = advance(self.user_has_recv_pos, n, FC);
-
-            n_produce += n;
-            if n != s1.len() {
-                return n_produce;
-            }
-        }
-
-        if !s2.is_empty() {
-            let n = unsafe { self.fq.produce(s2) };
-            // kernel_can_write_len update automatically
-            self.user_has_recv_len -= n;
-            self.user_has_recv_pos = advance(self.user_has_recv_pos, n, FC);
-
-            n_produce += n;
-            if n != s2.len() {
-                return n_produce;
-            }
-        }
-
-        debug_assert_eq!(
-            self.user_has_recv_len, 0,
-            "user_has_recv_len should be zero after producing all"
-        );
-
-        n_produce
-    }
-
-    /// 用户尝试获得已经被内核写入数据的 fd。
-    /// “内核可写”区域 -> “用户可接收”区域
-    pub(crate) fn user_consume(&mut self) -> usize {
-        let mut n_consume = 0;
-
-        // 内核可写区
-        let (s1, s2) = advance_get_mut(
-            self.kernel_can_write_len(),
-            self.kernel_can_write_pos,
-            self.user_has_recv_pos,
-            &mut self.rx_fds,
-        );
-
-        if !s1.is_empty() {
-            let n = unsafe { self.rx_q.consume(s1) };
-            // kernel_can_write_len update automatically
-            self.user_can_recv_len += n;
-            self.kernel_can_write_pos = advance(self.kernel_can_write_pos, n, FC);
-
-            n_consume += n;
-            if n != s1.len() {
-                return n_consume;
-            }
-        }
-
-        if !s2.is_empty() {
-            let n = unsafe { self.rx_q.consume(s2) };
-            // kernel_can_write_len update automatically
-            self.user_can_recv_len += n;
-            self.kernel_can_write_pos = advance(self.kernel_can_write_pos, n, FC);
-
-            n_consume += n;
-            if n != s2.len() {
-                return n_consume;
-            }
-        }
-
-        debug_assert_eq!(
-            self.kernel_can_write_len(),
-            0,
-            "user_can_recv_len should be zero after consuming all"
-        );
-
-        n_consume
-    }
-
-    /// 用户读取 1 个可用来读的 fd。
-    /// “用户可接收”区域 -> “用户已接收”区域
-    pub(crate) fn user_recv_one(&mut self) -> Option<&FrameDesc> {
-        if self.user_can_recv_len == 0 {
-            return None;
-        }
-
-        let rx_fd = &self.rx_fds[self.user_can_recv_pos];
-
-        self.user_can_recv_len -= 1;
-        self.user_has_recv_len += 1;
-        self.user_can_recv_pos = advance(self.user_can_recv_pos, 1, self.rx_fds.len());
-
-        Some(rx_fd)
-    }
-
-    pub(crate) fn get_fd_can_read(&mut self) -> Option<&FrameDesc> {
-        // 当用户已读的fd足够多时，我们批量向内核提供
-        // PERF: 回收的时机不宜太早（性能考量），也不宜太晚（内核没有可用的 fd 会导致丢数据）
-        if self.user_has_recv_len() >= (FC / 2) {
-            self.user_produce();
-        }
-
-        // 当用户没有可读的fd时，我们尝试从内核收回已经有数据的fd
-        if self.user_can_recv_len() == 0 {
-            self.user_consume();
-        }
-
-        self.user_recv_one()
-    }
-}
-
-/// ```txt
-/// |____kernel_has_send____|____user_has_write____|____user_can_write____
-/// ```
-#[derive(Debug)]
-pub(crate) struct XdpWriter<const FC: usize> {
-    pub(crate) tx_q: TxQueue,
-    pub(crate) tx_fds: [FrameDesc; FC],
-    // 内核处理完要发送的数据后，用户需要consume数据对应的fd
-    pub(crate) cq: CompQueue,
-
-    /// “用户可写”区的起始点。
-    /// 用户可写意味着用户可用该 fd 来发送数据。
-    user_can_write_pos: usize,
-
-    /// “用户已写”区的起始点。
-    user_has_write_pos: usize,
-
-    /// “内核已发送”区的起始点。
-    kernel_has_send_pos: usize,
-
-    // 为了区分 empty 和 full，引入长度。
-    //
-    /// “用户已写” -> “用户可写”
-    user_has_write_len: usize,
-
-    /// “内核已发送” -> “用户已写”
-    kernel_has_send_len: usize,
-}
-
-impl<const FC: usize> XdpWriter<FC> {
-    /// “用户可写”区域的长度 (空闲空间，待用户写入)
-    pub(crate) const fn user_can_write_len(&self) -> usize {
-        self.tx_fds.len() - self.kernel_has_send_len - self.user_has_write_len
-    }
-
-    /// “用户已写”区域的长度 (已有数据，待内核发送)
-    pub(crate) const fn user_has_write_len(&self) -> usize {
-        self.user_has_write_len
-    }
-
-    /// “内核已发送”区域的长度 (已发送数据，待用户回收)
-    pub(crate) const fn kernel_has_send_len(&self) -> usize {
-        self.kernel_has_send_len
-    }
-
-    /// 用户完成写入，将 1 个描述符提交给内核。
-    /// “用户可写”区域 -> “用户已写”区域
-    pub(crate) fn user_write_one(&mut self) -> Option<&mut FrameDesc> {
-        if self.user_can_write_len() == 0 {
-            return None;
-        }
-
-        let tx_fd = &mut self.tx_fds[self.user_can_write_pos];
-
-        self.user_has_write_len += 1;
-        self.user_can_write_pos = advance(self.user_can_write_pos, 1, FC);
-
-        Some(tx_fd)
-    }
-
-    /// 用户向内核提供已经写入数据的 fd，内核将它们发送。
-    /// “用户已写”区域 -> “内核已发送”区域
-    ///
-    /// *考虑到性能和延迟，由用户自行决定何时调用以平衡两者。*
-    pub(crate) fn user_produce_and_wakeup(&mut self) -> io::Result<usize> {
-        let mut n_produce = 0;
-
-        // 用户已写区
-        let (s1, s2) = advance_get_mut(
-            self.user_has_write_len(),
-            self.user_has_write_pos,
-            self.user_can_write_pos,
-            &mut self.tx_fds,
-        );
-
-        if !s1.is_empty() {
-            let n = unsafe { self.tx_q.produce(s1) };
-            self.user_has_write_len -= n;
-            self.kernel_has_send_len += n;
-            self.user_has_write_pos = advance(self.user_has_write_pos, n, FC);
-
-            n_produce += n;
-            if n != s1.len() {
-                if self.tx_q.needs_wakeup() {
-                    self.tx_q.wakeup()?;
-                }
-                return Ok(n_produce);
-            }
-        }
-        if !s2.is_empty() {
-            let n = unsafe { self.tx_q.produce(s2) };
-            self.user_has_write_len -= n;
-            self.kernel_has_send_len += n;
-            self.user_has_write_pos = advance(self.user_has_write_pos, n, FC);
-
-            n_produce += n;
-            if n != s2.len() {
-                if self.tx_q.needs_wakeup() {
-                    self.tx_q.wakeup()?;
-                }
-                return Ok(n_produce);
-            }
-        }
-
-        debug_assert_eq!(
-            self.user_has_write_len, 0,
-            "user_has_write_len should be zero after producing all"
-        );
-
-        if self.tx_q.needs_wakeup() {
-            self.tx_q.wakeup()?;
-        }
-
-        Ok(n_produce)
-    }
-
-    /// 用户尝试收回已经被内核发送的 fd。
-    /// “内核已发送”区域 -> “用户可写”区域
-    pub(crate) fn user_consume(&mut self) -> usize {
-        let mut n_consume = 0;
-
-        let (s1, s2) = advance_get_mut(
-            self.kernel_has_send_len(),
-            self.kernel_has_send_pos,
-            self.user_has_write_pos,
-            &mut self.tx_fds,
-        );
-
-        if !s1.is_empty() {
-            let n = unsafe { self.cq.consume(s1) };
-            self.kernel_has_send_len -= n;
-            self.kernel_has_send_pos = advance(self.kernel_has_send_pos, n, FC);
-
-            n_consume += n;
-            if n != s1.len() {
-                return n_consume;
-            }
-        }
-
-        if !s2.is_empty() {
-            let n = unsafe { self.cq.consume(s2) };
-            self.kernel_has_send_len -= n;
-            self.kernel_has_send_pos = advance(self.kernel_has_send_pos, n, FC);
-
-            n_consume += n;
-            if n != s2.len() {
-                return n_consume;
-            }
-        }
-
-        debug_assert_eq!(
-            self.kernel_has_send_len, 0,
-            "kernel_has_send_len should be zero after consuming all"
-        );
-
-        n_consume
-    }
-
-    pub(crate) fn get_fd_can_write(&mut self) -> Option<&mut FrameDesc> {
-        // 当用户已写的fd足够多时，我们批量向内核提供，不再等待用户指令。
-        if self.user_has_write_len() >= (FC / 2) {
-            self.user_produce_and_wakeup().ok();
-        }
-
-        // 当用户没有可写的fd时，我们尝试从内核收回已经发送的fd
-        if self.user_can_write_len() == 0 {
-            self.user_consume();
-        }
-
-        self.user_write_one()
     }
 }
 
@@ -488,6 +200,7 @@ impl<const FC: usize> Device for XdpDevice<FC> {
     }
 
     fn capabilities(&self) -> DeviceCapabilities {
+        // TODO: Make configurable
         let mut caps = DeviceCapabilities::default();
         caps.max_transmission_unit = 3000;
         caps.medium = Medium::Ethernet;
@@ -497,13 +210,436 @@ impl<const FC: usize> Device for XdpDevice<FC> {
     }
 }
 
-/// 接收数据的流程：
-///     1. 调用 FillQueue 的 produce() 方法，向内核提供 UMEM 中可用的 FrameDesc
-///     2. 等待内核将数据写入 FrameDesc 指向的区域
-///     3. 调用 RxQueue 的 consume() 方法，获取内核写入数据的 FrameDesc
-pub(crate) struct XskRxToken<'a> {
+/// XDP Receive Queue Manager
+///
+/// # Three-stage buffer layout:
+/// ```text
+/// |____user_has_recv____|____user_can_recv____|____kernel_can_write____
+///       Read (User)           Pending Read         Writable (Kernel)
+/// ```
+///
+/// # Invariants:
+/// - `user_has_recv_len + user_can_recv_len + kernel_can_write_len() == FC`
+/// - Regions do not overlap
+/// - All position indices < FC
+#[derive(Debug)]
+pub(crate) struct XdpReader<const FC: usize> {
+    pub(crate) rx_q: RxQueue,
+    pub(crate) rx_fds: [FrameDesc; FC],
+    pub(crate) fq: FillQueue,
+
+    kernel_can_write_pos: usize,
+    user_can_recv_pos: usize,
+    user_has_recv_pos: usize,
+
+    user_can_recv_len: usize,
+    user_has_recv_len: usize,
+
+    /// Batch threshold: When read frames exceed this value, batch return to kernel
+    rx_batch_threshold: usize,
+}
+
+impl<const FC: usize> XdpReader<FC> {
+    pub(crate) fn new(
+        rx_q: RxQueue,
+        rx_fds: [FrameDesc; FC],
+        fq: FillQueue,
+        rx_batch_threshold: usize,
+    ) -> Self {
+        Self {
+            rx_q,
+            rx_fds,
+            fq,
+            kernel_can_write_pos: 0,
+            user_can_recv_pos: 0,
+            user_has_recv_pos: 0,
+            user_can_recv_len: 0,
+            user_has_recv_len: 0,
+            rx_batch_threshold,
+        }
+    }
+
+    /// Length of "Kernel can Write" area (free space, waiting for kernel to write)
+    #[inline]
+    pub(crate) const fn kernel_can_write_len(&self) -> usize {
+        FC - self.user_can_recv_len - self.user_has_recv_len
+    }
+
+    /// Length of "User can Read" area (has data, waiting for user to read)
+    #[inline]
+    pub(crate) const fn user_can_recv_len(&self) -> usize {
+        self.user_can_recv_len
+    }
+
+    /// Length of "User has Recv" area (read, waiting to return to kernel)
+    #[inline]
+    pub(crate) const fn user_has_recv_len(&self) -> usize {
+        self.user_has_recv_len
+    }
+
+    /// User returns read frame descriptors to the kernel
+    ///
+    /// "User has Recv" area -> "Kernel can Write" area
+    ///
+    /// # Return
+    /// Number of frames successfully produced/returned
+    pub(crate) fn user_produce(&mut self) -> usize {
+        let mut n_produce = 0;
+
+        // User has received area
+        let (s1, s2) = advance_get_mut(
+            self.user_has_recv_len(),
+            self.user_has_recv_pos,
+            self.user_can_recv_pos,
+            &mut self.rx_fds,
+        );
+
+        if !s1.is_empty() {
+            // SAFETY: Frames in s1 have been read by the user, now returning to kernel
+            let n = unsafe { self.fq.produce(s1) };
+            self.user_has_recv_len -= n;
+            self.user_has_recv_pos = advance(self.user_has_recv_pos, n, FC);
+            n_produce += n;
+
+            if n != s1.len() {
+                return n_produce;
+            }
+        }
+
+        if !s2.is_empty() {
+            // SAFETY: Frames in s2 have been read by the user, now returning to kernel
+            let n = unsafe { self.fq.produce(s2) };
+            self.user_has_recv_len -= n;
+            self.user_has_recv_pos = advance(self.user_has_recv_pos, n, FC);
+            n_produce += n;
+
+            if n != s2.len() {
+                return n_produce;
+            }
+        }
+
+        debug_assert_eq!(
+            self.user_has_recv_len, 0,
+            "user_has_recv_len should be zero after producing all"
+        );
+
+        n_produce
+    }
+
+    /// User acquires frames filled with data from the kernel
+    ///
+    /// "Kernel can Write" area -> "User can Recv" area
+    ///
+    /// # Return
+    /// Number of frames successfully consumed/acquired
+    pub(crate) fn user_consume(&mut self) -> usize {
+        let mut n_consume = 0;
+
+        let (s1, s2) = advance_get_mut(
+            self.kernel_can_write_len(),
+            self.kernel_can_write_pos,
+            self.user_has_recv_pos,
+            &mut self.rx_fds,
+        );
+
+        if !s1.is_empty() {
+            // SAFETY: Frames in s1 currently belong to kernel, we try to acquire frames filled by kernel
+            let n = unsafe { self.rx_q.consume(s1) };
+            self.user_can_recv_len += n;
+            self.kernel_can_write_pos = advance(self.kernel_can_write_pos, n, FC);
+            n_consume += n;
+
+            if n != s1.len() {
+                return n_consume;
+            }
+        }
+
+        if !s2.is_empty() {
+            // SAFETY: Frames in s2 currently belong to kernel, we try to acquire frames filled by kernel
+            let n = unsafe { self.rx_q.consume(s2) };
+            self.user_can_recv_len += n;
+            self.kernel_can_write_pos = advance(self.kernel_can_write_pos, n, FC);
+            n_consume += n;
+
+            if n != s2.len() {
+                return n_consume;
+            }
+        }
+
+        debug_assert_eq!(
+            self.kernel_can_write_len(),
+            0,
+            "user_can_recv_len should be zero after consuming all"
+        );
+
+        n_consume
+    }
+
+    /// User reads one available frame
+    ///
+    /// "User can Recv" area -> "User has Recv" area
+    ///
+    /// # Return
+    /// Reference to readable frame descriptor, or None if no frames available
+    pub(crate) fn user_recv_one(&mut self) -> Option<&FrameDesc> {
+        if self.user_can_recv_len == 0 {
+            return None;
+        }
+
+        let rx_fd = &self.rx_fds[self.user_can_recv_pos];
+
+        self.user_can_recv_len -= 1;
+        self.user_has_recv_len += 1;
+        self.user_can_recv_pos = advance(self.user_can_recv_pos, 1, FC);
+
+        Some(rx_fd)
+    }
+
+    pub(crate) fn get_fd_can_read(&mut self) -> Option<&FrameDesc> {
+        // When user has read enough fds, we return them to kernel in batch, not waiting for user instruction.
+        if self.user_has_recv_len() >= self.rx_batch_threshold {
+            self.user_produce();
+        }
+
+        // When user has no readable fds, we try to reclaim fds with data from kernel
+        if self.user_can_recv_len() == 0 {
+            self.user_consume();
+        }
+
+        self.user_recv_one()
+    }
+}
+
+/// XDP Transmit Queue Manager
+///
+/// # Three-stage buffer layout:
+/// ```text
+/// |____kernel_has_send____|____user_has_write____|____user_can_write____
+///       Sent (Kernel)          Written (User)         Writable (User)
+/// ```
+///
+/// # Invariants:
+/// - `kernel_has_send_len + user_has_write_len + user_can_write_len() == FC`
+/// - Regions do not overlap
+/// - All position indices < FC
+#[derive(Debug)]
+pub(crate) struct XdpWriter<const FC: usize> {
+    pub(crate) tx_q: TxQueue,
+    pub(crate) tx_fds: [FrameDesc; FC],
+    pub(crate) cq: CompQueue,
+
+    user_can_write_pos: usize,
+    user_has_write_pos: usize,
+    kernel_has_send_pos: usize,
+
+    user_has_write_len: usize,
+    kernel_has_send_len: usize,
+
+    /// Batch threshold: Automatically submit to kernel when written frames exceed this value
+    tx_batch_threshold: usize,
+}
+
+impl<const FC: usize> XdpWriter<FC> {
+    pub(crate) fn new(
+        tx_q: TxQueue,
+        tx_fds: [FrameDesc; FC],
+        cq: CompQueue,
+        tx_batch_threshold: usize,
+    ) -> Self {
+        Self {
+            tx_q,
+            tx_fds,
+            cq,
+            user_can_write_pos: 0,
+            user_has_write_pos: 0,
+            kernel_has_send_pos: 0,
+            user_has_write_len: 0,
+            kernel_has_send_len: 0,
+            tx_batch_threshold,
+        }
+    }
+
+    /// Length of "User can Write" area (free space, waiting for user to write)
+    #[inline]
+    pub(crate) const fn user_can_write_len(&self) -> usize {
+        FC - self.kernel_has_send_len - self.user_has_write_len
+    }
+
+    /// Length of "User has Write" area (data written, waiting to submit to kernel)
+    #[inline]
+    pub(crate) const fn user_has_write_len(&self) -> usize {
+        self.user_has_write_len
+    }
+
+    /// Length of "Kernel has Send" area (sent, waiting to be reclaimed)
+    #[inline]
+    pub(crate) const fn kernel_has_send_len(&self) -> usize {
+        self.kernel_has_send_len
+    }
+
+    /// User acquires a writable frame
+    ///
+    /// "User can Write" area -> "User has Write" area
+    ///
+    /// # Return
+    /// Mutable reference to writable frame descriptor, or None if no frames available
+    pub(crate) fn user_write_one(&mut self) -> Option<&mut FrameDesc> {
+        if self.user_can_write_len() == 0 {
+            return None;
+        }
+
+        let tx_fd = &mut self.tx_fds[self.user_can_write_pos];
+
+        self.user_has_write_len += 1;
+        self.user_can_write_pos = advance(self.user_can_write_pos, 1, FC);
+
+        Some(tx_fd)
+    }
+
+    /// User submits written frames to kernel and wakes up kernel if necessary
+    ///
+    /// "User has Write" area -> "Kernel has Send" area
+    ///
+    /// # Return
+    /// Number of frames successfully submitted
+    pub(crate) fn user_produce_and_wakeup(&mut self) -> io::Result<usize> {
+        let mut n_produce = 0;
+
+        let (s1, s2) = advance_get_mut(
+            self.user_has_write_len(),
+            self.user_has_write_pos,
+            self.user_can_write_pos,
+            &mut self.tx_fds,
+        );
+
+        if !s1.is_empty() {
+            // SAFETY: Frames in s1 have been written by user, now submitting to kernel for transmission
+            let n = unsafe { self.tx_q.produce(s1) };
+            self.user_has_write_len -= n;
+            self.kernel_has_send_len += n;
+            self.user_has_write_pos = advance(self.user_has_write_pos, n, FC);
+            n_produce += n;
+
+            if n != s1.len() {
+                if self.tx_q.needs_wakeup() {
+                    self.tx_q.wakeup()?;
+                }
+                return Ok(n_produce);
+            }
+        }
+        if !s2.is_empty() {
+            // SAFETY: Frames in s2 have been written by user, now submitting to kernel for transmission
+            let n = unsafe { self.tx_q.produce(s2) };
+            self.user_has_write_len -= n;
+            self.kernel_has_send_len += n;
+            self.user_has_write_pos = advance(self.user_has_write_pos, n, FC);
+            n_produce += n;
+
+            if n != s2.len() {
+                if self.tx_q.needs_wakeup() {
+                    self.tx_q.wakeup()?;
+                }
+                return Ok(n_produce);
+            }
+        }
+
+        debug_assert_eq!(
+            self.user_has_write_len, 0,
+            "user_has_write_len should be zero after producing all"
+        );
+
+        if self.tx_q.needs_wakeup() {
+            self.tx_q.wakeup()?;
+        }
+
+        Ok(n_produce)
+    }
+
+    /// User reclaims sent frames from the kernel
+    ///
+    /// "Kernel has Send" area -> "User can Write" area
+    ///
+    /// # Return
+    /// Number of frames successfully reclaimed
+    pub(crate) fn user_consume(&mut self) -> usize {
+        let mut n_consume = 0;
+
+        let (s1, s2) = advance_get_mut(
+            self.kernel_has_send_len(),
+            self.kernel_has_send_pos,
+            self.user_has_write_pos,
+            &mut self.tx_fds,
+        );
+
+        if !s1.is_empty() {
+            // SAFETY: Frames in s1 currently belong to kernel, we try to reclaim sent frames
+            let n = unsafe { self.cq.consume(s1) };
+            self.kernel_has_send_len -= n;
+            self.kernel_has_send_pos = advance(self.kernel_has_send_pos, n, FC);
+
+            n_consume += n;
+            if n != s1.len() {
+                return n_consume;
+            }
+        }
+
+        if !s2.is_empty() {
+            // SAFETY: Frames in s2 currently belong to kernel, we try to reclaim sent frames
+            let n = unsafe { self.cq.consume(s2) };
+            self.kernel_has_send_len -= n;
+            self.kernel_has_send_pos = advance(self.kernel_has_send_pos, n, FC);
+
+            n_consume += n;
+            if n != s2.len() {
+                return n_consume;
+            }
+        }
+
+        debug_assert_eq!(
+            self.kernel_has_send_len, 0,
+            "kernel_has_send_len should be zero after consuming all"
+        );
+
+        n_consume
+    }
+
+    /// Get a writable frame
+    ///
+    /// This method automatically handles:
+    /// 1. Automatically submit to kernel when enough frames are written
+    /// 2. Try to reclaim sent frames when no writable frames are available
+    ///
+    /// # Return
+    /// Mutable reference to writable frame descriptor, or None if no frames available
+    pub(crate) fn get_fd_can_write(&mut self) -> Option<&mut FrameDesc> {
+        // When user has written enough fds, we batch submit to kernel, not waiting for user instruction.
+        if self.user_has_write_len() >= self.tx_batch_threshold {
+            self.user_produce_and_wakeup().ok();
+        }
+
+        // When user has no writable fds, we try to reclaim sent fds from kernel
+        if self.user_can_write_len() == 0 {
+            self.user_consume();
+        }
+
+        self.user_write_one()
+    }
+}
+
+/// Receive Token
+///
+/// # Data Flow:
+/// 1. User calls `FillQueue::produce()` to provide empty frames to kernel
+/// 2. Kernel writes received packet data into frames
+/// 3. User calls `RxQueue::consume()` to acquire filled frames
+/// 4. Read data via this Token
+///
+/// # Safety
+/// - During the lifetime of this Token, the corresponding frame belongs to user
+/// - After `consume()`, frame ownership returns to queue manager
+pub struct XskRxToken<'a> {
     umem: &'a Umem,
-    // 指向umem某个frame
+    // Points to a frame in umem
     fd: &'a FrameDesc,
 }
 
@@ -512,6 +648,7 @@ impl<'a> RxToken for XskRxToken<'a> {
     where
         F: FnOnce(&[u8]) -> R,
     {
+        // SAFETY: Memory area pointed to by fd has been written by kernel, now exclusive access by us
         let data = unsafe { self.umem.data(self.fd) };
 
         trace!("xdp recv: {:?}", data.contents());
@@ -520,18 +657,24 @@ impl<'a> RxToken for XskRxToken<'a> {
     }
 }
 
-/// When this token is consum, the kernel will not be awakened.
-/// It is up to the user to decide when to wake it up (by calling ['wakeup_kernel']).
+/// Transmit Token
 ///
-/// 发送数据的流程：
-///     1. 从 UMEM 获取一个可用的 FrameDesc
-///     2. 向 FrameDesc 指向的区域写入数据
-///     3. 调用 TxQueue 的 produce_one() 方法，将 FrameDesc 交给内核处理
-///     4. 用户选择在适当的时候调用 `wakeup_kernel()` 方法，唤醒内核处理发送队列
-///     5. 此时可以调用 CompQueue 的 consume() 方法，获取内核处理完的数据对应的 FrameDesc
+/// # Data Flow:
+/// 1. Get free frame from UMEM
+/// 2. Write data to frame via this Token
+/// 3. Call `TxQueue::produce()` to submit to kernel
+/// 4. After kernel transmission, reclaim via `CompQueue::consume()`
+///
+/// # Safety
+/// - During the lifetime of this Token, the corresponding frame belongs to user
+/// - After `consume()`, frame data will be read and sent by kernel
+///
+/// # Note
+/// Consuming this Token does not immediately wake up the kernel.
+/// The queue manager decides when to wake up to optimize batching performance.
 pub struct XskTxToken<'a> {
     umem: &'a Umem,
-    // 指向umem某个frame
+    // Points to a frame in umem
     fd: &'a mut FrameDesc,
 }
 
@@ -540,7 +683,7 @@ impl<'a> TxToken for XskTxToken<'a> {
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        // 从 UMEM 获取整个帧的可变数据区域
+        // SAFETY: Memory area pointed to by fd currently exclusively accessed by us
         let mut data_mut = unsafe { self.umem.data_mut(self.fd) };
         let mut cursor = data_mut.cursor();
 
@@ -562,40 +705,70 @@ impl<'a> TxToken for XskTxToken<'a> {
     }
 }
 
-/// pos 在长度为 n_max的循环数组中前进 n 步。
+/// Advance position in circular array
+///
+/// # Arguments
+/// - `pos`: Current position
+/// - `n`: Steps to advance
+/// - `n_max`: Array capacity
+///
+/// # Return
+/// New position (wrapped around)
 const fn advance(pos: usize, n: usize, n_max: usize) -> usize {
     (pos + n) % n_max
 }
 
-/// 在循环数组中，获取从 pos1 开始，长度为 len 的区域，分割成两个切片返回。
+/// Get mutable slices of a specified region in a circular array
+///
+/// # Arguments
+/// - `len`: Region length
+/// - `pos1`: Region start position
+/// - `pos2`: Region end position (exclusive)
+/// - `arr`: Circular array
+///
+/// # Return
+/// `(slice1, slice2)` - If region crosses array boundary, returns two slices; otherwise second slice is empty
+///
+/// # Panics
+/// - If `len > arr.len()`
+/// - If position arguments are inconsistent
 fn advance_get_mut<T>(len: usize, pos1: usize, pos2: usize, arr: &mut [T]) -> (&mut [T], &mut [T]) {
     let n_max = arr.len();
 
-    assert!(len <= n_max, "Length cannot exceed buffer capacity");
+    assert!(
+        len <= n_max,
+        "Length {} cannot exceed buffer capacity {}",
+        len,
+        n_max
+    );
     assert!(
         len == 0 || len == n_max || (pos1 + len) % n_max == pos2,
-        "pos1, pos2, and len are inconsistent"
+        "Inconsistent positions: pos1={}, pos2={}, len={}, capacity={}",
+        pos1,
+        pos2,
+        len,
+        n_max
     );
 
-    // Case 1: 明确的“空”状态
+    // Case 1: Empty region
     if len == 0 {
         return (&mut [], &mut []);
     }
 
-    // Case 2: 明确的“满”状态
+    // Case 2: Full region (entire array)
     if len == n_max {
-        // 区域从 pos1 环绕一整圈。我们以 pos1 为界分割整个数组。
+        // Region wraps around from pos1. We split the array at pos1.
         let (left, right) = arr.split_at_mut(pos1);
-        // 逻辑顺序是 right -> left
+        // Logical order is right -> left
         return (right, left);
     }
 
-    // Case 3: 部分填充状态 (0 < len < N), pos1 和 pos2 必然不相等
+    // Case 3: Partial region
     if pos1 < pos2 {
-        // 3a: 不环绕。这是一个单一的连续块。
+        // Does not cross boundary
         (&mut arr[pos1..pos2], &mut [])
     } else {
-        // 3b: 环绕。
+        // Crosses boundary
         let (left, right) = arr.split_at_mut(pos1);
         (right, &mut left[..pos2])
     }
@@ -617,11 +790,13 @@ mod tests {
     const FRAME_COUNT: usize = 16;
 
     fn create_device(if_name: &str) -> XdpDevice<FRAME_COUNT> {
-        let sk_conf = SocketConfig::builder()
-            .xdp_flags(XdpFlags::XDP_FLAGS_SKB_MODE) // 使用 SKB 模式
-            .build();
-
-        XdpDevice::new_with_config(if_name, sk_conf).unwrap()
+        XdpDeviceConfig::builder()
+            .if_name(if_name)
+            .queue_id(0)
+            .xdp_flags(XdpFlags::XDP_FLAGS_SKB_MODE)
+            .build()
+            .try_into()
+            .unwrap()
     }
 
     fn total_len(msg: &[u8]) -> usize {
@@ -660,9 +835,7 @@ mod tests {
         let mut device1 = create_device(INTERFACE_NAME1);
         let writer = &mut device1.writer;
 
-        // WARN:
-        // 发送的数据长度必须大于某个值，否则user_consume会出错，这个值与批量consume的量正相关，原因未知。
-        // 例如发送了很多数据才调用一次 user_consume 则数据长度要求更大。
+        // WARN: The size of msg must be greater than the minimum Ethernet frame size (14 bytes)
         let msg = [0_u8; 64];
 
         let n = FRAME_COUNT - 1;

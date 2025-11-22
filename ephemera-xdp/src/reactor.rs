@@ -1,30 +1,27 @@
 use crate::{
-    bpf::{Protocols, xdp_ip_filter::XdpFilter},
-    device::XdpDevice,
+    bpf::{Protocols, transfer_flags, xdp_ip_filter::XdpFilter},
+    device::{XdpDevice, XdpDeviceConfig},
 };
 use libbpf_rs::{MapCore, MapFlags};
 use smoltcp::{
-    iface::{Interface, PollResult, Route, SocketSet},
+    iface::{Interface, PollResult, SocketSet},
     time::{Duration, Instant},
     wire::{EthernetAddress, IpCidr},
 };
 use std::{
+    error::Error,
     io,
     net::IpAddr,
     ops::Deref,
     os::fd::AsRawFd,
-    sync::{Arc, LazyLock, Mutex},
+    sync::{Arc, Mutex, OnceLock},
 };
 use tracing::debug;
 
+pub use xsk_rs::config::{BindFlags, LibxdpFlags, XdpFlags};
+
 /// Global singleton instance of the XDP Reactor.
-///
-/// Initializes the background polling thread lazily upon first access.
-pub(crate) static GLOBAL_XDP_REACTOR: LazyLock<XdpReactor> = LazyLock::new(|| {
-    let reactor = XdpReactor::create_reactor(None).unwrap();
-    run_reactor_background(reactor.clone());
-    reactor
-});
+pub(crate) static GLOBAL_XDP_REACTOR: OnceLock<XdpReactor> = OnceLock::new();
 
 /// Returns the global shared XDP reactor instance.
 /// Polls the reactor in a background thread.
@@ -32,10 +29,8 @@ pub(crate) static GLOBAL_XDP_REACTOR: LazyLock<XdpReactor> = LazyLock::new(|| {
 /// This drives the event loop, handling underlying XDP socket polling and interface flushing.
 /// It alternates between processing packets (busy-looping during bursts) and sleeping
 /// via `phy::wait` when idle to save CPU.
-pub(crate) fn run_reactor_background(reactor: XdpReactor) {
+pub(crate) fn run_reactor_background(reactor: XdpReactor, wait_timeout: Duration) {
     std::thread::spawn(move || {
-        let timeout = Duration::from_millis(10);
-
         loop {
             let (fd, delay) = {
                 let mut reactor_guard = reactor.lock().unwrap();
@@ -58,7 +53,7 @@ pub(crate) fn run_reactor_background(reactor: XdpReactor) {
             };
 
             // Sleep until I/O events occur or timeout expires.
-            smoltcp::phy::wait(fd, delay.or(Some(timeout))).unwrap();
+            smoltcp::phy::wait(fd, delay.or(Some(wait_timeout))).unwrap();
         }
     });
 }
@@ -68,55 +63,31 @@ pub(crate) fn run_reactor_background(reactor: XdpReactor) {
 /// The `XdpReactor` is the primary entry point for the XDP network stack.
 /// It abstracts away background packet polling, allowing users to focus on
 /// socket creation and state management.
-///
-/// # Examples
-///
-/// ```no_run
-/// use ephemera_xdp::reactor::XdpReactor;
-/// use ephemera_xdp::bpf::PROTO_TCP;
-///
-/// // 1. Use the global reactor (Recommended)
-/// let reactor = XdpReactor::global();
-/// reactor.add_allowed_dst_port(8080, PROTO_TCP)?;
-///
-/// // 2. Create a custom reactor instance
-/// let reactor = XdpReactor::new()?;
-/// reactor.add_allowed_src_ip("192.168.1.100".parse()?, PROTO_TCP)?;
-///
-/// // 3. Create bound to a specific interface
-/// let reactor = XdpReactor::with_interface("eth0")?;
-/// # Ok::<(), std::io::Error>(())
-/// ```
 #[derive(Clone)]
 pub struct XdpReactor(pub(crate) Arc<Mutex<XdpReactorInner>>);
 
+#[bon::bon]
 impl XdpReactor {
-    /// Creates a new `XdpReactor` bound to a specific network interface.
-    ///
-    /// # Arguments
-    ///
-    /// * `interface_name` - The name of the interface (e.g., "eth0", "wlan0").
-    pub fn with_interface(interface_name: &str) -> io::Result<Self> {
-        Self::create_reactor(Some(interface_name))
-    }
+    #[builder(finish_fn = build)]
+    pub fn with_device(
+        #[builder(start_fn)] mut device: XdpDevice,
 
-    /// Internal helper to initialize the reactor logic.
-    fn create_reactor(interface_name: Option<&str>) -> io::Result<Self> {
-        // 1. Identify interface
-        let interface = if let Some(name) = interface_name {
-            netdev::get_interfaces()
-                .into_iter()
-                .find(|i| i.name == name)
-                .ok_or_else(|| {
-                    io::Error::new(
-                        io::ErrorKind::NotFound,
-                        format!("Network interface '{}' not found", name),
-                    )
-                })?
-        } else {
-            netdev::get_default_interface()
-                .map_err(|e| io::Error::new(io::ErrorKind::NotFound, e))?
-        };
+        /// Background thread wating timeout.
+        /// Lower values reduce latency but increase CPU usage when idle.
+        #[builder(default = Duration::from_millis(10))]
+        wait_timeout: Duration,
+    ) -> io::Result<Self> {
+        let if_name = device.config().if_name.clone();
+
+        let interface = netdev::get_interfaces()
+            .into_iter()
+            .find(|i| i.name == if_name)
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("Network interface '{}' not found", if_name),
+                )
+            })?;
 
         let xdp_if_name = &interface.name;
         let xdp_if_index = interface.index;
@@ -134,17 +105,14 @@ impl XdpReactor {
                 .octets(),
         );
 
-        debug!(xdp_if_name = xdp_if_name, xdp_if_index = xdp_if_index, xdp_mac = %xdp_mac);
+        // 3. Load BPF program
+        let bpf = XdpFilter::new(
+            xdp_if_index as i32,
+            transfer_flags(device.config().xdp_flags),
+        )
+        .map_err(|e| io::Error::other(format!("Failed to load BPF program: {}", e)))?;
 
-        // 5. Load BPF program
-        let bpf = XdpFilter::new(xdp_if_index as i32)
-            .map_err(|e| io::Error::other(format!("Failed to load BPF program: {}", e)))?;
-
-        // 6. Initialize XDP Device (AF_XDP socket)
-        let mut device = XdpDevice::new(xdp_if_name)
-            .map_err(|e| io::Error::other(format!("Failed to create XDP device: {}", e)))?;
-
-        // 7. Initialize smoltcp Interface
+        // 4. Initialize smoltcp Interface
         let mut iface = Interface::new(
             smoltcp::iface::Config::new(xdp_mac.into()),
             &mut device,
@@ -157,8 +125,6 @@ impl XdpReactor {
                     .push(IpCidr::new(ipv4.addr().into(), ipv4.prefix_len()))
                     .ok();
             });
-
-            debug!(xdp_if_name = xdp_if_name, ipv4 = %ipv4);
         }
         for ipv6 in &interface.ipv6 {
             iface.update_ip_addrs(|ip_addrs| {
@@ -166,8 +132,6 @@ impl XdpReactor {
                     .push(IpCidr::new(ipv6.addr().into(), ipv6.prefix_len()))
                     .ok();
             });
-
-            debug!(xdp_if_name = xdp_if_name, ipv6 = %ipv6);
         }
         if iface.ip_addrs().is_empty() {
             return Err(io::Error::new(
@@ -188,131 +152,77 @@ impl XdpReactor {
             .add_default_ipv4_route(xdp_gateway_ipv4)
             .map_err(|e| io::Error::other(format!("Failed to add default route: {}", e)))?;
 
-        debug!(
-            xdp_if_name = xdp_if_name,
-            xdp_gateway_ipv4 = %xdp_gateway_ipv4,
-        );
-
-        // 8. Map queue 0 to our socket FD in BPF
+        // 5. Map queue id to our socket FD in BPF
         let xsk_fd = device.as_raw_fd();
         bpf.skel
             .maps
             .xsks_map
-            .update(&0_i32.to_le_bytes(), &xsk_fd.to_le_bytes(), MapFlags::ANY)
+            .update(
+                &device.config().queue_id.to_le_bytes(),
+                &xsk_fd.to_le_bytes(),
+                MapFlags::ANY,
+            )
             .map_err(|e| io::Error::other(format!("Failed to update xsks_map: {}", e)))?;
 
         let inner = XdpReactorInner::new(iface, device, bpf);
         let reactor = XdpReactor(Arc::new(Mutex::new(inner)));
 
-        run_reactor_background(reactor.clone());
+        {
+            let guard = reactor.0.lock().unwrap();
+            debug!(
+                if_name = xdp_if_name,
+                queue_id = guard.device.config().queue_id,
+                mac = %xdp_mac,
+                gateway = %xdp_gateway_ipv4,
+                ip_addrs = ?guard.iface.ip_addrs(),
+                "XdpReactor initialized"
+            );
+        }
+
+        run_reactor_background(reactor.clone(), wait_timeout);
 
         Ok(reactor)
     }
 
-    /// Access the global singleton XDP reactor.
-    ///
-    /// The global reactor is lazily initialized on first access.
+    /// Internal helper to initialize the reactor logic.
+    #[builder]
+    pub fn new(
+        /// Network interface name (e.g., "eth0", "wlan0").
+        /// If None, the system's default interface will be used.
+        #[builder(into, default = netdev::get_default_interface().unwrap().name)]
+        if_name: String,
+
+        /// Background thread wating timeout.
+        /// Lower values reduce latency but increase CPU usage when idle.
+        #[builder(default = Duration::from_millis(10))]
+        wait_timeout: Duration,
+    ) -> io::Result<Self> {
+        let device = XdpDeviceConfig::builder()
+            .if_name(if_name)
+            // Load custom xdp program
+            .libxdp_flags(LibxdpFlags::XSK_LIBXDP_FLAGS_INHIBIT_PROG_LOAD)
+            .build()
+            .try_into()
+            .map_err(|e| io::Error::other(format!("Failed to create XDP device: {}", e)))?;
+
+        Self::with_device(device).wait_timeout(wait_timeout).build()
+    }
+
+    /// Set global XDP reactor instance
+    pub fn set_global(reactor: XdpReactor) -> Result<(), Box<dyn Error>> {
+        GLOBAL_XDP_REACTOR
+            .set(reactor)
+            .map_err(|_| "Global XdpReactor has already been initialized".into())
+    }
+
     pub fn global() -> XdpReactor {
-        GLOBAL_XDP_REACTOR.clone()
-    }
-
-    // ==================== Configuration Methods (Setters) ====================
-
-    /// Adds an IP address to the network interface.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use ephemera_xdp::reactor::XdpReactor;
-    /// use smoltcp::wire::{IpCidr, IpAddress};
-    ///
-    /// let reactor = XdpReactor::global();
-    /// let ip = IpCidr::new(IpAddress::v4(192, 168, 1, 100), 24);
-    /// reactor.add_ip_address(ip)?;
-    /// # Ok::<(), std::io::Error>(())
-    /// ```
-    pub fn add_ip_address(&self, ip: IpCidr) -> io::Result<()> {
-        let mut guard = self.lock().unwrap();
-        let mut result = Ok(());
-
-        guard.iface.update_ip_addrs(|ip_addrs| {
-            if ip_addrs.push(ip).is_err() {
-                result = Err(io::Error::new(
-                    io::ErrorKind::OutOfMemory,
-                    "IP address list is full",
-                ));
-            }
-        });
-
-        result
-    }
-
-    /// Removes an IP address from the network interface.
-    pub fn remove_ip_address(&self, ip: IpCidr) -> io::Result<()> {
-        let mut guard = self.lock().unwrap();
-        let mut result = Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            "IP address not found",
-        ));
-
-        guard.iface.update_ip_addrs(|ip_addrs| {
-            if let Some(pos) = ip_addrs.iter().position(|&x| x == ip) {
-                ip_addrs.remove(pos);
-                result = Ok(());
-            }
-        });
-
-        result
-    }
-
-    /// Adds an IPv4 route to the routing table.
-    pub fn add_ipv4_route(
-        &self,
-        cidr: IpCidr,
-        gateway: smoltcp::wire::Ipv4Address,
-    ) -> io::Result<()> {
-        let mut guard = self.lock().unwrap();
-        let mut route = Route::new_ipv4_gateway(gateway);
-        route.cidr = cidr;
-
-        let mut result = Ok(());
-
-        guard.iface.routes_mut().update(|routes| {
-            if routes.push(route).is_err() {
-                result = Err(io::Error::new(
-                    io::ErrorKind::OutOfMemory,
-                    "Route table is full",
-                ));
-            }
-        });
-
-        result
-    }
-
-    /// Sets the default IPv4 gateway.
-    pub fn set_default_gateway(&self, gateway: smoltcp::wire::Ipv4Address) -> io::Result<()> {
-        let mut guard = self.lock().unwrap();
-        guard
-            .iface
-            .routes_mut()
-            .add_default_ipv4_route(gateway)
-            .map_err(|e| io::Error::other(format!("Failed to set default gateway: {}", e)))?;
-
-        Ok(())
-    }
-
-    // ==================== Query Methods (Getters) ====================
-
-    /// Returns a list of currently configured IP addresses.
-    pub fn ip_addresses(&self) -> Vec<IpCidr> {
-        let guard = self.lock().unwrap();
-        guard.iface.ip_addrs().to_vec()
-    }
-
-    /// Returns the hardware (MAC) address of the network interface.
-    pub fn hardware_address(&self) -> smoltcp::wire::HardwareAddress {
-        let guard = self.lock().unwrap();
-        guard.iface.hardware_addr()
+        GLOBAL_XDP_REACTOR
+            .get_or_init(|| {
+                XdpReactor::builder()
+                    .build()
+                    .expect("Failed to initialize global XdpReactor")
+            })
+            .clone()
     }
 
     // ==================== BPF Filter Management ====================
