@@ -5,7 +5,6 @@ edition = "2024"
 
 [workspace]
 members = [
-  "ephemera-indicator",
   "ephemera-shared",
   "ephemera-source",
   "ephemera-strategy",
@@ -25,7 +24,6 @@ members = [
 # serde_json = "1.0.145"
 
 [workspace.dependencies]
-ephemera-indicator = { path = "./ephemera-indicator" }
 ephemera-shared = { path = "./ephemera-shared" }
 ephemera-source = { path = "./ephemera-source" }
 ephemera-strategy = { path = "./ephemera-strategy" }

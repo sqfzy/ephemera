@@ -9,7 +9,6 @@ use smoltcp::{
     wire::{EthernetAddress, IpCidr},
 };
 use std::{
-    error::Error,
     io,
     net::IpAddr,
     ops::Deref,
@@ -209,10 +208,8 @@ impl XdpReactor {
     }
 
     /// Set global XDP reactor instance
-    pub fn set_global(reactor: XdpReactor) -> Result<(), Box<dyn Error>> {
-        GLOBAL_XDP_REACTOR
-            .set(reactor)
-            .map_err(|_| "Global XdpReactor has already been initialized".into())
+    pub fn set_global(reactor: XdpReactor) -> Result<(), XdpReactor> {
+        GLOBAL_XDP_REACTOR.set(reactor)
     }
 
     pub fn global() -> XdpReactor {

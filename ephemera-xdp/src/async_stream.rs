@@ -30,9 +30,8 @@ impl XdpTcpStream {
             );
 
             let mut addrs = addr.to_socket_addrs()?.peekable();
-            let local_port = pick_unused_port().ok_or_else(|| {
-                io::Error::other("Failed to pick an unused port for TCP connection")
-            })?;
+            let local_port =
+                pick_unused_port().ok_or_else(|| io::Error::other("No available ports"))?;
 
             let mut reactor_guard = reactor.lock().unwrap();
 
@@ -40,16 +39,12 @@ impl XdpTcpStream {
                 reactor_guard
                     .bpf
                     .add_allowed_src_ip(addr.ip(), Protocols::TCP)
-                    .map_err(|e| {
-                        io::Error::other(format!("Failed to add {addr} to allowed IPs: {e}"))
-                    })?;
+                    .map_err(io::Error::other)?;
 
                 match socket.connect(reactor_guard.iface.context(), addr, local_port) {
                     Ok(_) => break,
                     Err(_) if addrs.peek().is_some() => continue,
-                    e => e.map_err(|e| {
-                        io::Error::other(format!("Failed to connect to {addr}: {e}"))
-                    })?,
+                    e => e.map_err(io::Error::other)?,
                 }
             }
 
@@ -70,7 +65,10 @@ impl XdpTcpStream {
                 }
                 // 处理连接失败的情况
                 state if state == TcpState::Closed || state == TcpState::TimeWait => {
-                    Poll::Ready(Err(io::Error::other("Connection closed/failed")))
+                    Poll::Ready(Err(io::Error::new(
+                        io::ErrorKind::ConnectionRefused,
+                        "Connection failed",
+                    )))
                 }
                 _ => {
                     // 其他状态也等待

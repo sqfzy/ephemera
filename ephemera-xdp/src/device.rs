@@ -3,7 +3,6 @@ use smoltcp::{
     time::Instant,
 };
 use std::{
-    error::Error,
     fmt::Debug,
     io,
     num::NonZeroU32,
@@ -65,7 +64,7 @@ pub struct XdpDeviceConfig<const FC: usize = 1024> {
 }
 
 impl<const FC: usize> TryFrom<XdpDeviceConfig<FC>> for XdpDevice<FC> {
-    type Error = Box<dyn Error>;
+    type Error = io::Error;
 
     fn try_from(config: XdpDeviceConfig<FC>) -> Result<Self, Self::Error> {
         XdpDevice::new(config)
@@ -82,7 +81,7 @@ pub struct XdpDevice<const FC: usize = 1024> {
 }
 
 impl<const FC: usize> XdpDevice<FC> {
-    pub fn new(config: XdpDeviceConfig<FC>) -> Result<Self, Box<dyn Error>> {
+    pub fn new(config: XdpDeviceConfig<FC>) -> io::Result<Self> {
         let XdpDeviceConfig {
             if_name,
             queue_id,
@@ -95,16 +94,22 @@ impl<const FC: usize> XdpDevice<FC> {
         } = config.clone();
 
         // 1. Parse interface name (xsk_rs requires a specific Interface type)
-        let if_name_parsed = if_name
-            .parse()
-            .map_err(|e| format!("Failed to parse interface name: {}", e))?;
+        let if_name_parsed = if_name.parse().map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("Failed to parse interface name: {}", e),
+            )
+        })?;
 
         // 2. Calculate total frame count (Rx + Tx)
-        let total_frame_count =
-            NonZeroU32::new((FC * 2) as u32).ok_or("FRAME_COUNT (FC) cannot be zero")?;
+        let total_frame_count = NonZeroU32::new((FC * 2) as u32).ok_or(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Frame count must be greater than zero",
+        ))?;
 
         // 3. Create Umem (User space memory area)
-        let (umem, descs) = Umem::new(UmemConfig::default(), total_frame_count, use_huge_pages)?;
+        let (umem, descs) = Umem::new(UmemConfig::default(), total_frame_count, use_huge_pages)
+            .map_err(io::Error::other)?;
 
         // 4. Split frame descriptors (Rx first half, Tx second half)
         let rx_fds: [FrameDesc; FC] = descs[..FC]
@@ -128,10 +133,11 @@ impl<const FC: usize> XdpDevice<FC> {
 
         // 6. Create AF_XDP Socket
         let (tx_q, rx_q, fq_and_cq) =
-            unsafe { XskSocket::new(socket_config, &umem, &if_name_parsed, queue_id) }?;
+            unsafe { XskSocket::new(socket_config, &umem, &if_name_parsed, queue_id) }
+                .map_err(io::Error::other)?;
 
         // fq (Fill Queue) and cq (Completion Queue) must exist because we are not sharing umem
-        let (mut fq, cq) = fq_and_cq.ok_or("FillQueue and CompQueue not found (Shared Umem?)")?;
+        let (mut fq, cq) = fq_and_cq.expect("Unsupport shared umem. Try another queue id");
 
         // 7. Initialize Fill Queue
         // Must first put Rx frame descriptors into Fill Queue, telling the kernel these frames can be used to receive data
