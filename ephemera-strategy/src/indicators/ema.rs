@@ -32,10 +32,6 @@ impl Indicator for EMA {
     fn value(&self) -> Option<Self::Output> {
         self.value
     }
-
-    fn reset(&mut self) {
-        self.value = None;
-    }
 }
 
 #[cfg(test)]

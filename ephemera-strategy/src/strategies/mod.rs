@@ -20,10 +20,4 @@ pub trait Strategy: Send + Sync {
         &mut self,
         input: Self::Input,
     ) -> impl Future<Output = Result<Option<Self::Signal>, Self::Error>> + Send;
-
-    /// 获取策略名称
-    fn name(&self) -> &str;
-
-    /// 重置策略状态
-    fn reset(&mut self);
 }

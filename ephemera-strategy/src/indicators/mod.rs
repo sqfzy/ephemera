@@ -22,7 +22,4 @@ pub trait Indicator: Send + Sync {
 
     /// 获取当前指标值
     fn value(&self) -> Option<Self::Output>;
-
-    /// 重置指标
-    fn reset(&mut self);
 }

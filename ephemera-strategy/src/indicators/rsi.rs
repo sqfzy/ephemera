@@ -88,14 +88,6 @@ impl Indicator for RSI {
             None
         }
     }
-
-    fn reset(&mut self) {
-        self.gains.clear();
-        self.losses.clear();
-        self.prev_price = None;
-        self.avg_gain = 0.0;
-        self.avg_loss = 0.0;
-    }
 }
 
 #[cfg(test)]

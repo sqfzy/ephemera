@@ -76,15 +76,6 @@ impl Strategy for MACDStrategy {
 
         Ok(Some(signal))
     }
-
-    fn name(&self) -> &str {
-        "MACD Strategy"
-    }
-
-    fn reset(&mut self) {
-        self.macd.reset();
-        self.prev_histogram = None;
-    }
 }
 
 #[cfg(test)]

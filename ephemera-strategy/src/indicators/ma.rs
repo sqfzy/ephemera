@@ -47,11 +47,6 @@ impl Indicator for MA {
             None
         }
     }
-
-    fn reset(&mut self) {
-        self.values.clear();
-        self.sum = 0.0;
-    }
 }
 
 #[cfg(test)]

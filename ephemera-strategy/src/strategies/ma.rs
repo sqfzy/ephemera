@@ -80,17 +80,6 @@ impl Strategy for MACrossStrategy {
 
         Ok(signal)
     }
-
-    fn name(&self) -> &str {
-        "MA Cross Strategy"
-    }
-
-    fn reset(&mut self) {
-        self.fast_ma.reset();
-        self.slow_ma.reset();
-        self.prev_fast = None;
-        self.prev_slow = None;
-    }
 }
 
 #[cfg(test)]

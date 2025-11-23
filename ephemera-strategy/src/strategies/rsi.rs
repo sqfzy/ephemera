@@ -79,14 +79,6 @@ impl Strategy for RSIStrategy {
 
         Ok(Some(signal))
     }
-
-    fn name(&self) -> &str {
-        "RSI Strategy"
-    }
-
-    fn reset(&mut self) {
-        self.rsi.reset();
-    }
 }
 
 #[cfg(test)]
@@ -115,3 +107,4 @@ mod tests {
         }
     }
 }
+

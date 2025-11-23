@@ -93,11 +93,6 @@ impl Indicator for BB {
             lower: middle - band_width,
         })
     }
-
-    fn reset(&mut self) {
-        self.ma.reset();
-        self.values.clear();
-    }
 }
 
 #[cfg(test)]

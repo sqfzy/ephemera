@@ -66,13 +66,6 @@ impl Indicator for MACD {
             histogram,
         })
     }
-
-    fn reset(&mut self) {
-        self.fast_ema.reset();
-        self.slow_ema.reset();
-        self.signal_ema.reset();
-        self.macd_line = None;
-    }
 }
 
 #[cfg(test)]
