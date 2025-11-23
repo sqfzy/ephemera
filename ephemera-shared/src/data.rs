@@ -1,5 +1,10 @@
+use serde::{Deserialize, Serialize};
+use smallvec::SmallVec;
+
 use crate::{IntervalSc, Symbol, TimestampMs};
 use std::cmp::Ordering;
+
+pub type BookSide = SmallVec<[(f64, f64); 20]>;
 
 pub const CANDLE_INTERVAL_1S: IntervalSc = 1;
 pub const CANDLE_INTERVAL_1M: IntervalSc = 60;
@@ -45,27 +50,16 @@ impl From<BookData> for MarketData {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TradeData {
-    // /// 交易所分配的唯一交易ID
-    // pub trade_id: u64,
-    /// 产品ID。
     pub symbol: Symbol,
-
-    /// 行情数据产生的时间，Unix时间戳的毫秒数格式。
     pub timestamp_ms: TimestampMs,
-
-    /// 最新成交价。
     pub price: f64,
-
-    /// 最新成交的数量。
     pub quantity: f64,
-
-    /// 交易方向
     pub side: Side,
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct CandleData {
     pub symbol: Symbol,
     pub interval_sc: IntervalSc,
@@ -177,22 +171,24 @@ impl CandleData {
 }
 
 // PERF: 使用 Arc 避免频繁克隆或者使用数组
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct BookData {
     pub symbol: Symbol,
     pub timestamp: TimestampMs,
     /// (价格, 数量)
-    pub bids: Vec<(f64, f64)>,
+    pub bids: BookSide,
     /// (价格, 数量)
-    pub asks: Vec<(f64, f64)>,
+    pub asks: BookSide,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::EnumString)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::EnumString, Serialize, Deserialize)]
 #[strum(ascii_case_insensitive)]
 pub enum Side {
     #[strum(serialize = "buy")]
+    #[serde(alias = "Buy", alias = "BUY")]
     Buy,
     #[strum(serialize = "sell")]
+    #[serde(alias = "Sell", alias = "SELL")]
     Sell,
 }
 

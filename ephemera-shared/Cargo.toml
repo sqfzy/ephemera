@@ -4,13 +4,16 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+bytestring = { workspace = true }
+futures = { workspace = true }
+itertools = { workspace = true }
+
 async-stream = "0.3.6"
-bytestring = "1.4.0"
 dashmap = "6.1.0"
-futures = "0.3.31"
-itertools = "0.14.0"
 strum = { version = "0.27.2", features = ["derive"] }
 thiserror = "2.0.16"
+serde = "1"
+smallvec = { version = "1.15.1", features = ["serde"] }
 
 [dev-dependencies]
-tokio = { version = "1.47", features = ["rt", "macros"] }
+tokio = { workspace = true }

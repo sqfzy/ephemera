@@ -667,6 +667,8 @@ dependencies = [
  "dashmap",
  "futures",
  "itertools 0.14.0",
+ "serde",
+ "smallvec",
  "strum",
  "thiserror 2.0.17",
  "tokio",
@@ -693,6 +695,7 @@ dependencies = [
  "serde_with",
  "serial_test",
  "simd-json",
+ "smallvec",
  "strum",
  "tempfile",
  "tokio",
@@ -2155,6 +2158,9 @@ name = "smallvec"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "smoltcp"
