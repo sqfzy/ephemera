@@ -12,9 +12,9 @@ itertools = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 futures = { workspace = true }
+bytestring = {workspace = true}
 
 async-stream = "0.3.6"
-bytestring = { version = "1.5.0", features = ["serde"] }
 http = "1.3.1"
 serde = { version = "1.0.219", features = ["derive"] }
 tokio-websockets = { version = "0.13", features = [
@@ -31,6 +31,7 @@ enum-table = "2.1.2"
 flume = "0.11.1"
 dashmap = "6.1.0"
 csv-async = { version = "1.3" , features = ["tokio"]}
+smallvec = { version = "1.15.1", features = ["const_new", "serde"] }
 # thiserror = "2.0.16"
 
 [dev-dependencies]

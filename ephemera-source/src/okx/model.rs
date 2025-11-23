@@ -107,7 +107,7 @@ impl TryFrom<WsDataResponse<OkxBookData>> for Vec<BookData> {
     type Error = eyre::Error;
 
     fn try_from(value: WsDataResponse<OkxBookData>) -> Result<Self, Self::Error> {
-        let parse_levels = |levels: Vec<Level>| -> Result<Vec<(f64, f64)>> {
+        let parse_levels = |levels: Vec<Level>| -> Result<BookSide> {
             levels
                 .into_iter()
                 .map(|(price_str, size_str, _, _)| {

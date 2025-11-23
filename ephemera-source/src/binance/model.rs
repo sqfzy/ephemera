@@ -223,7 +223,6 @@ pub(super) struct RawCandleDataInner {
 }
 
 /// Represents an incremental update to the order book.
-#[serde_as]
 #[derive(Debug, Deserialize)]
 pub(super) struct RawBookData {
     #[serde(rename = "E")]
@@ -235,13 +234,11 @@ pub(super) struct RawBookData {
     #[serde(rename = "u")]
     pub(super) final_update_id: u64,
 
-    #[serde_as(as = "Vec<(DisplayFromStr, DisplayFromStr)>")]
     #[serde(rename = "b")]
-    pub(super) bids: Vec<(f64, f64)>,
+    pub(super) bids: BookSide,
 
-    #[serde_as(as = "Vec<(DisplayFromStr, DisplayFromStr)>")]
     #[serde(rename = "a")]
-    pub(super) asks: Vec<(f64, f64)>,
+    pub(super) asks: BookSide,
 }
 
 impl TryFrom<WsDataResponse<RawBookData>> for BookData {
@@ -258,17 +255,12 @@ impl TryFrom<WsDataResponse<RawBookData>> for BookData {
 }
 
 /// Represents a partial book depth snapshot.
-#[serde_as]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct RawBookSnapshotData {
     pub(super) last_update_id: u64,
-
-    #[serde_as(as = "Vec<(DisplayFromStr, DisplayFromStr)>")]
-    pub(super) bids: Vec<(f64, f64)>,
-
-    #[serde_as(as = "Vec<(DisplayFromStr, DisplayFromStr)>")]
-    pub(super) asks: Vec<(f64, f64)>,
+    pub(super) bids: BookSide,
+    pub(super) asks: BookSide,
 }
 
 impl TryFrom<WsDataResponse<RawBookSnapshotData>> for BookData {
