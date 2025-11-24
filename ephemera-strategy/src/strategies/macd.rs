@@ -54,7 +54,6 @@ impl Strategy for MACDStrategy {
                         self.symbol.clone(),
                         candle.close,
                         self.position_size,
-                        format!("MACD金叉: histogram={}", macd_value.histogram),
                     )
                 }
                 // 柱状图从正转负：MACD下穿信号线
@@ -63,7 +62,6 @@ impl Strategy for MACDStrategy {
                         self.symbol.clone(),
                         candle.close,
                         self.position_size,
-                        format!("MACD死叉: histogram={}", macd_value.histogram),
                     )
                 } else {
                     Signal::Hold

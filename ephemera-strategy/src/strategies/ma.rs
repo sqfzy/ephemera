@@ -57,7 +57,6 @@ impl Strategy for MACrossStrategy {
                         self.symbol.clone(),
                         candle.close,
                         self.position_size,
-                        format!("MA金叉: 快线={}, 慢线={}", f, s),
                     ))
                 }
                 // 死叉：快线下穿慢线
@@ -66,7 +65,6 @@ impl Strategy for MACrossStrategy {
                         self.symbol.clone(),
                         candle.close,
                         self.position_size,
-                        format!("MA死叉: 快线={}, 慢线={}", f, s),
                     ))
                 } else {
                     Some(Signal::Hold)

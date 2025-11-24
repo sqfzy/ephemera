@@ -233,3 +233,42 @@ pub(super) struct OkxBookData {
     /// 推送的序列号
     pub(super) seq_id: Option<i128>,
 }
+
+/// 下单请求
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct PlaceOrderRequest {
+    pub inst_id: ByteString,
+    pub td_mode: TradeMode,
+    pub side: OrderSide,
+    pub ord_type: OrderType,
+    pub sz: ByteString,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub px: Option<ByteString>,
+}
+
+/// 订单信息
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrderInfo {
+    pub inst_id: ByteString,
+    pub ord_id: ByteString,
+    #[serde(default)]
+    pub cl_ord_id: ByteString,
+    #[serde(default)]
+    pub px: ByteString,
+    pub sz: ByteString,
+    pub ord_type: OrderType,
+    pub side: OrderSide,
+    pub state: OrderState,
+    #[serde(default)]
+    pub acc_fill_sz: ByteString,
+    #[serde(default)]
+    pub avg_px: ByteString,
+    #[serde(default)]
+    pub fee: ByteString,
+    #[serde(default)]
+    pub c_time: ByteString,
+    #[serde(default)]
+    pub u_time: ByteString,
+}

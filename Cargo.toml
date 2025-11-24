@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = [
+members = ["ephemera-execution",
   "ephemera-shared",
   "ephemera-source",
   "ephemera-strategy",
@@ -12,16 +12,17 @@ members = [
 ]
 
 [dependencies]
-# tokio = {version = "1.48", features = ["full"]}
-# itertools = "0.14.0"
-# futures = "0.3.31"
-# ephemera-strategy = { path = "./ephemera-strategy" }
-# rand = "0.9"
-# eyre = "0.6.12"
-# ndarray = { version = "0.16", features = ["serde", "rayon"] }
-# ndarray-stats = "0.6.0"
-# serde = { version = "1.0.228", features = ["derive"] }
-# serde_json = "1.0.145"
+ephemera-shared = { workspace = true }
+ephemera-source = { workspace = true }
+ephemera-strategy = { workspace = true }
+
+tokio = { workspace = true }
+itertools = { workspace = true }
+futures = { workspace = true }
+eyre = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+chrono = "0.4.42"
 
 [workspace.dependencies]
 ephemera-shared = { path = "./ephemera-shared" }

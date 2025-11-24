@@ -60,19 +60,9 @@ impl Strategy for RSIStrategy {
         };
 
         let signal = if rsi_value < self.oversold_threshold {
-            Signal::buy(
-                self.symbol.clone(),
-                candle.close,
-                self.position_size,
-                format!("RSI超卖: {}", rsi_value),
-            )
+            Signal::buy(self.symbol.clone(), candle.close, self.position_size)
         } else if rsi_value > self.overbought_threshold {
-            Signal::sell(
-                self.symbol.clone(),
-                candle.close,
-                self.position_size,
-                format!("RSI超买: {}", rsi_value),
-            )
+            Signal::sell(self.symbol.clone(), candle.close, self.position_size)
         } else {
             Signal::Hold
         };
@@ -107,4 +97,3 @@ mod tests {
         }
     }
 }
-
