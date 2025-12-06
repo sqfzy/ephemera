@@ -3,12 +3,14 @@ pub mod ema;
 pub mod ma;
 pub mod macd;
 pub mod rsi;
+pub mod sar;
 
 pub use bollinger::*;
 pub use ema::*;
 pub use ma::*;
 pub use macd::*;
 pub use rsi::*;
+pub use sar::*;
 
 
 pub trait Indicator: Send + Sync {
