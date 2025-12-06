@@ -1,7 +1,3 @@
-pub mod rsi;
-
-pub use rsi::*;
-
 use std::future::Future;
 
 pub trait Strategy: Send + Sync {
