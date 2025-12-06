@@ -6,6 +6,7 @@ pub use ma::*;
 pub use rsi::*;
 pub use macd::*;
 
+use std::future::Future;
 
 pub trait Strategy: Send + Sync {
     /// 输入数据类型

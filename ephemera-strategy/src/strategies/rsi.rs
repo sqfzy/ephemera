@@ -74,7 +74,7 @@ impl Strategy for RSIStrategy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ephemera_shared::CANDLE_INTERVAL_1M;
+    use ephemera_shared::CANDLE_INTERVAL_MIN1;
 
     #[tokio::test]
     async fn test_rsi_strategy() {
@@ -84,7 +84,7 @@ mod tests {
         for i in 1..=20 {
             let candle = CandleData {
                 symbol: symbol.into(),
-                interval_sc: CANDLE_INTERVAL_1M,
+                interval_sc: CANDLE_INTERVAL_MIN1,
                 open_timestamp_ms: i * 60000,
                 open: 100.0 + i as f64,
                 high: 101.0 + i as f64,
