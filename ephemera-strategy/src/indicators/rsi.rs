@@ -48,16 +48,8 @@ impl Indicator for RSI {
         };
 
         let change = price - prev_price;
-        let gain = if change > 0.0 {
-            change
-        } else {
-            0.0
-        };
-        let loss = if change < 0.0 {
-            -change
-        } else {
-            0.0
-        };
+        let gain = if change > 0.0 { change } else { 0.0 };
+        let loss = if change < 0.0 { -change } else { 0.0 };
 
         self.gains.push_back(gain);
         self.losses.push_back(loss);

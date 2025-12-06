@@ -1,8 +1,6 @@
 pub mod rsi;
-pub mod macd;
 
 pub use rsi::*;
-pub use macd::*;
 
 use std::future::Future;
 
