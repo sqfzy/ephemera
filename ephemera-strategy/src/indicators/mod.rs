@@ -6,6 +6,7 @@ pub mod ma;
 pub mod mvrv;
 pub mod rsi;
 pub mod stream;
+pub mod pi_cycle;
 
 pub use ahr::*;
 pub use bollinger::*;
@@ -15,11 +16,12 @@ pub use ma::*;
 pub use mvrv::*;
 pub use rsi::*;
 pub use stream::*;
+pub use pi_cycle::*;
 
 pub trait Indicator {
     type Input;
     type Output;
 
-    fn next_value(&mut self, input: Self::Input) -> Self::Output;
+    fn on_data(&mut self, input: Self::Input) -> Self::Output;
 }
 

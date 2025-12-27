@@ -20,12 +20,12 @@ use std::collections::VecDeque;
 /// - **背离**: 价格创新高但 RSI 未创新高（顶背离），或价格创新低但 RSI 未创新低（底背离），可能预示反转。
 #[derive(Debug, Clone)]
 pub struct RSI {
-    period: usize,
-    price_changes: VecDeque<f64>,
-    last_price: Option<f64>,
-    avg_gain: f64,
-    avg_loss: f64,
-    is_initialized: bool,
+    pub(crate) period: usize,
+    pub(crate) price_changes: VecDeque<f64>,
+    pub(crate) last_price: Option<f64>,
+    pub(crate) avg_gain: f64,
+    pub(crate) avg_loss: f64,
+    pub(crate) is_initialized: bool,
 }
 
 impl RSI {
@@ -92,7 +92,7 @@ impl Indicator for RSI {
     type Input = f64;
     type Output = Option<f64>;
 
-    fn next_value(&mut self, input: Self::Input) -> Self::Output {
+    fn on_data(&mut self, input: Self::Input) -> Self::Output {
         let current_price = input;
 
         // 计算价格变化
@@ -151,7 +151,7 @@ mod tests {
 
         let mut result = None;
         for price in prices {
-            result = rsi.next_value(price);
+            result = rsi.on_data(price);
         }
 
         assert!(result.is_some());
@@ -177,7 +177,7 @@ mod tests {
 
         let mut result = None;
         for price in prices {
-            result = rsi.next_value(price);
+            result = rsi.on_data(price);
         }
 
         assert!(result.is_some());

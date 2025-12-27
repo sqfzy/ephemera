@@ -28,13 +28,13 @@ const SECONDS_PER_DAY: u64 = 86400;
 /// 不同的历史时期拟合出的参数可能不同。
 #[derive(Debug, Clone)]
 pub struct AHR {
-    ma200: MA,
+    pub(crate) ma200: MA,
     /// 创世时间戳 (秒)
-    genesis_ts: u64,
+    pub(crate) genesis_ts: u64,
     /// 指数增长斜率
-    slope: f64,
+    pub(crate) slope: f64,
     /// 预计算的截距因子: 10^intercept
-    intercept_factor: f64,
+    pub(crate) intercept_factor: f64,
 }
 
 impl AHR {
@@ -74,11 +74,11 @@ impl Indicator for AHR {
     type Output = Option<f64>;
 
     /// Input: (price, timestamp_seconds)
-    fn next_value(&mut self, input: Self::Input) -> Self::Output {
+    fn on_data(&mut self, input: Self::Input) -> Self::Output {
         let (price, timestamp) = input;
 
         // 1. 更新 MA200 (若数据不足直接返回)
-        let ma200 = self.ma200.next_value(price)?;
+        let ma200 = self.ma200.on_data(price)?;
 
         // 2. 计算估值模型
         let coin_age = self.calculate_coin_age(timestamp);
@@ -113,11 +113,11 @@ fn test_ahr() {
     // 1. 预热前 199 个点
     for i in 1..200 {
         let ts = i * 86400;
-        ahr.next_value((constant_price, ts));
+        ahr.on_data((constant_price, ts));
     }
 
     // 2. 喂入第 200 个点，触发计算
-    let result = ahr.next_value((constant_price, ts_200));
+    let result = ahr.on_data((constant_price, ts_200));
 
     // 3. AHR
     // Formula: (P^2) / (MA * Expected)

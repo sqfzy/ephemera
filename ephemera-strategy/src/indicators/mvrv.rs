@@ -21,10 +21,10 @@ use std::collections::VecDeque;
 /// - **0 附近**: 市场处于该周期内的平均水平。
 #[derive(Debug, Clone)]
 pub struct MVRVZScore {
-    period: usize,
-    mvrv_values: VecDeque<f64>,
-    sum: f64,
-    sum_squared: f64,
+    pub(crate) period: usize,
+    pub(crate) mvrv_values: VecDeque<f64>,
+    pub(crate) sum: f64,
+    pub(crate) sum_squared: f64,
 }
 
 impl MVRVZScore {
@@ -52,7 +52,7 @@ impl Indicator for MVRVZScore {
     type Output = Option<f64>;
 
     /// Input: (market_cap, realized_cap)
-    fn next_value(&mut self, input: Self::Input) -> Self::Output {
+    fn on_data(&mut self, input: Self::Input) -> Self::Output {
         let (market_cap, realized_cap) = input;
 
         // Calculate MVRV ratio
@@ -101,11 +101,11 @@ mod tests {
         let mut mvrv_zscore = MVRVZScore::new(3);
 
         // Not enough data yet
-        assert!(mvrv_zscore.next_value((100.0, 100.0)).is_none());
-        assert!(mvrv_zscore.next_value((110.0, 100.0)).is_none());
+        assert!(mvrv_zscore.on_data((100.0, 100.0)).is_none());
+        assert!(mvrv_zscore.on_data((110.0, 100.0)).is_none());
 
         // Now we have 3 values:  MVRV = [1.0, 1.1, 1.2]
-        let result = mvrv_zscore.next_value((120.0, 100.0));
+        let result = mvrv_zscore.on_data((120.0, 100.0));
         assert!(result.is_some());
 
         // Mean = (1.0 + 1.1 + 1.2) / 3 = 1.1
@@ -115,7 +115,7 @@ mod tests {
         assert!(z_score > 0.0);
 
         // Add another value, rolling window
-        let result = mvrv_zscore.next_value((130.0, 100.0));
+        let result = mvrv_zscore.on_data((130.0, 100.0));
         assert!(result.is_some());
     }
 
@@ -124,7 +124,7 @@ mod tests {
         let mut mvrv_zscore = MVRVZScore::new(3);
 
         // Should return None when realized_cap is 0
-        assert!(mvrv_zscore.next_value((100.0, 0.0)).is_none());
+        assert!(mvrv_zscore.on_data((100.0, 0.0)).is_none());
     }
 
     #[test]
@@ -132,13 +132,12 @@ mod tests {
         let mut mvrv_zscore = MVRVZScore::new(3);
 
         // MVRV values will be:  1.0, 1.0, 1.0
-        assert!(mvrv_zscore.next_value((100.0, 100.0)).is_none());
-        assert!(mvrv_zscore.next_value((100.0, 100.0)).is_none());
-        let result = mvrv_zscore.next_value((100.0, 100.0));
+        assert!(mvrv_zscore.on_data((100.0, 100.0)).is_none());
+        assert!(mvrv_zscore.on_data((100.0, 100.0)).is_none());
+        let result = mvrv_zscore.on_data((100.0, 100.0));
 
         // All values are the same, so std_dev = 0, z_score = 0
         assert!(result.is_some());
         approx::assert_abs_diff_eq!(result.unwrap(), 0.0, epsilon = 1e-10);
     }
 }
-

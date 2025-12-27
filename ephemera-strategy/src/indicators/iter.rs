@@ -26,7 +26,7 @@ where
         let input = self.source.next()?;
 
         // 2. 喂给指标计算
-        let output = self.indicator.next_value(input);
+        let output = self.indicator.on_data(input);
 
         // 3. 返回计算结果
         Some(output)

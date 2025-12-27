@@ -19,10 +19,10 @@ use super::Indicator;
 /// - **交叉策略**: 短期 EMA 上穿长期 EMA 为金叉（买入信号），下穿为死叉（卖出信号）。
 #[derive(Debug, Clone)]
 pub struct EMA {
-    period: usize,
-    alpha: f64,
-    current_ema: Option<f64>,
-    init_values: Vec<f64>,
+    pub(crate) period: usize,
+    pub(crate) alpha: f64,
+    pub(crate) current_ema: Option<f64>,
+    pub(crate) init_values: Vec<f64>,
 }
 
 impl EMA {
@@ -66,7 +66,7 @@ impl Indicator for EMA {
     type Input = f64;
     type Output = Option<f64>;
 
-    fn next_value(&mut self, input: Self::Input) -> Self::Output {
+    fn on_data(&mut self, input: Self::Input) -> Self::Output {
         match self.current_ema {
             None => {
                 // 初始化阶段：使用 SMA 作为第一个 EMA 值
@@ -99,11 +99,11 @@ mod tests {
         let mut ema = EMA::new(3);
 
         // 前两个值应该返回 None
-        assert!(ema.next_value(10.0).is_none());
-        assert!(ema.next_value(20.0).is_none());
+        assert!(ema.on_data(10.0).is_none());
+        assert!(ema.on_data(20.0).is_none());
 
         // 第三个值应该返回 SMA
-        let result = ema.next_value(30.0);
+        let result = ema.on_data(30.0);
         assert!(result.is_some());
         approx::assert_abs_diff_eq!(result.unwrap(), 20.0); // (10+20+30)/3
     }
@@ -113,18 +113,18 @@ mod tests {
         let mut ema = EMA::new(3);
 
         // 初始化:  [10, 20, 30]
-        ema.next_value(10.0);
-        ema.next_value(20.0);
-        let first_ema = ema.next_value(30.0).unwrap();
+        ema.on_data(10.0);
+        ema.on_data(20.0);
+        let first_ema = ema.on_data(30.0).unwrap();
         approx::assert_abs_diff_eq!(first_ema, 20.0); // SMA = (10+20+30)/3 = 20
 
         // α = 2/(3+1) = 0.5
         // 下一个 EMA = 40 * 0.5 + 20 * 0.5 = 30
-        let second_ema = ema.next_value(40.0).unwrap();
+        let second_ema = ema.on_data(40.0).unwrap();
         approx::assert_abs_diff_eq!(second_ema, 30.0); // 40*0.5 + 20*0.5 = 30
 
         // 再下一个 EMA = 50 * 0.5 + 30 * 0.5 = 40
-        let third_ema = ema.next_value(50.0).unwrap();
+        let third_ema = ema.on_data(50.0).unwrap();
         approx::assert_abs_diff_eq!(third_ema, 40.0); // 50*0.5 + 30*0.5 = 40
     }
 
@@ -135,7 +135,7 @@ mod tests {
 
         let mut last_value = None;
         for price in prices {
-            if let Some(val) = ema.next_value(price) {
+            if let Some(val) = ema.on_data(price) {
                 last_value = Some(val);
             }
         }
@@ -167,15 +167,15 @@ mod tests {
         let mut ema = EMA::new(3);
 
         // 所有价格都是 100
-        ema.next_value(100.0);
-        ema.next_value(100.0);
-        let first = ema.next_value(100.0).unwrap();
+        ema.on_data(100.0);
+        ema.on_data(100.0);
+        let first = ema.on_data(100.0).unwrap();
         approx::assert_abs_diff_eq!(first, 100.0);
 
-        let second = ema.next_value(100.0).unwrap();
+        let second = ema.on_data(100.0).unwrap();
         approx::assert_abs_diff_eq!(second, 100.0);
 
-        let third = ema.next_value(100.0).unwrap();
+        let third = ema.on_data(100.0).unwrap();
         approx::assert_abs_diff_eq!(third, 100.0);
     }
 
@@ -190,10 +190,10 @@ mod tests {
         let mut long_result = None;
 
         for price in prices {
-            if let Some(val) = ema_short.next_value(price) {
+            if let Some(val) = ema_short.on_data(price) {
                 short_result = Some(val);
             }
-            if let Some(val) = ema_long.next_value(price) {
+            if let Some(val) = ema_long.on_data(price) {
                 long_result = Some(val);
             }
         }

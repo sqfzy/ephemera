@@ -18,9 +18,9 @@ use std::collections::VecDeque;
 /// - **MA200**: 长期趋势，著名的 "牛熊分界线"。
 #[derive(Debug, Clone)]
 pub struct MA {
-    period: usize,
-    values: VecDeque<f64>,
-    sum: f64,
+    pub(crate) period: usize,
+    pub(crate) values: VecDeque<f64>,
+    pub(crate) sum: f64,
 }
 
 impl MA {
@@ -62,7 +62,7 @@ impl Indicator for MA {
     type Input = f64;
     type Output = Option<f64>;
 
-    fn next_value(&mut self, input: Self::Input) -> Self::Output {
+    fn on_data(&mut self, input: Self::Input) -> Self::Output {
         self.values.push_back(input);
         self.sum += input;
 
@@ -84,8 +84,8 @@ impl Indicator for MA {
 fn test_ma() {
     let mut ma = MA::new(3);
 
-    assert!(ma.next_value(10.0).is_none());
-    assert!(ma.next_value(20.0).is_none());
-    approx::assert_abs_diff_eq!(ma.next_value(30.0).unwrap(), 20.0);
-    approx::assert_abs_diff_eq!(ma.next_value(40.0).unwrap(), 30.0);
+    assert!(ma.on_data(10.0).is_none());
+    assert!(ma.on_data(20.0).is_none());
+    approx::assert_abs_diff_eq!(ma.on_data(30.0).unwrap(), 20.0);
+    approx::assert_abs_diff_eq!(ma.on_data(40.0).unwrap(), 30.0);
 }

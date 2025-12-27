@@ -22,10 +22,10 @@ use std::collections::VecDeque;
 /// - **走出布林带**: 价格突破上轨或下轨，可能是趋势加速信号。
 #[derive(Debug, Clone)]
 pub struct BollingerBands {
-    period: usize,
-    std_dev_multiplier: f64,
-    ma: MA,
-    values: VecDeque<f64>,
+    pub(crate) period: usize,
+    pub(crate) std_dev_multiplier: f64,
+    pub(crate) ma: MA,
+    pub(crate) values: VecDeque<f64>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -88,7 +88,7 @@ impl Indicator for BollingerBands {
     type Input = f64;
     type Output = Option<BollingerBandsOutput>;
 
-    fn next_value(&mut self, input: Self::Input) -> Self::Output {
+    fn on_data(&mut self, input: Self::Input) -> Self::Output {
         // 1. 维护滑动窗口（先于 MA 更新，确保同步）
         self.values.push_back(input);
 
@@ -97,7 +97,7 @@ impl Indicator for BollingerBands {
         }
 
         // 2. 更新移动平均线
-        let middle = self.ma.next_value(input)?;
+        let middle = self.ma.on_data(input)?;
 
         // 3. 确保有足够数据（此时 values 和 ma 应该是同步的）
         if self.values.len() < self.period {
@@ -137,11 +137,11 @@ mod tests {
         let mut bb = BollingerBands::new(3, 2.0);
 
         // 不够数据
-        assert!(bb.next_value(10.0).is_none());
-        assert!(bb.next_value(20.0).is_none());
+        assert!(bb.on_data(10.0).is_none());
+        assert!(bb.on_data(20.0).is_none());
 
         // 第三个值：prices = [10, 20, 30], mean = 20
-        let result = bb.next_value(30.0);
+        let result = bb.on_data(30.0);
         assert!(result.is_some());
 
         let output = result.unwrap();
@@ -163,12 +163,12 @@ mod tests {
         let mut bb = BollingerBands::new(3, 2.0);
 
         // 初始化
-        bb.next_value(10.0);
-        bb.next_value(20.0);
-        bb.next_value(30.0);
+        bb.on_data(10.0);
+        bb.on_data(20.0);
+        bb.on_data(30.0);
 
         // 第四个值应该滚动窗口：[20, 30, 40]
-        let result = bb.next_value(40.0);
+        let result = bb.on_data(40.0);
         assert!(result.is_some());
 
         let output = result.unwrap();
@@ -184,7 +184,7 @@ mod tests {
 
         let mut result = None;
         for price in prices {
-            result = bb.next_value(price);
+            result = bb.on_data(price);
         }
 
         assert!(result.is_some());
@@ -207,7 +207,7 @@ mod tests {
 
         let mut result = None;
         for price in prices {
-            result = bb.next_value(price);
+            result = bb.on_data(price);
         }
 
         assert!(result.is_some());
@@ -226,9 +226,9 @@ mod tests {
         let mut bb = BollingerBands::new(3, 2.0);
 
         // 所有价格相同，标准差为 0
-        bb.next_value(100.0);
-        bb.next_value(100.0);
-        let result = bb.next_value(100.0);
+        bb.on_data(100.0);
+        bb.on_data(100.0);
+        let result = bb.on_data(100.0);
 
         assert!(result.is_some());
         let output = result.unwrap();
