@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = ["ephemera-execution",
+members = [
   "ephemera-shared",
   "ephemera-source",
   "ephemera-strategy",
@@ -23,6 +23,9 @@ eyre = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 chrono = "0.4.42"
+dotenvy = "0.15.7"
+tokio-stream = "0.1.17"
+async-stream = "0.3.6"
 
 [workspace.dependencies]
 ephemera-shared = { path = "./ephemera-shared" }
@@ -38,3 +41,4 @@ eyre = "0.6.12"
 tracing = "0.1"
 tracing-subscriber = "0.3.19"
 bytestring = { version = "1.5.0", features = ["serde"] }
+approx = "0.5"

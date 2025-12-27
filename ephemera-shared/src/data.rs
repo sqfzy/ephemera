@@ -6,23 +6,23 @@ use std::cmp::Ordering;
 
 pub type BookSide = SmallVec<[(f64, f64); 20]>;
 
-pub const CANDLE_INTERVAL_1S: IntervalSc = 1;
-pub const CANDLE_INTERVAL_1M: IntervalSc = 60;
-pub const CANDLE_INTERVAL_3M: IntervalSc = 180;
-pub const CANDLE_INTERVAL_5M: IntervalSc = 300;
-pub const CANDLE_INTERVAL_15M: IntervalSc = 900;
-pub const CANDLE_INTERVAL_30M: IntervalSc = 1800;
-pub const CANDLE_INTERVAL_1H: IntervalSc = 3600;
-pub const CANDLE_INTERVAL_2H: IntervalSc = 7200;
-pub const CANDLE_INTERVAL_4H: IntervalSc = 14400;
-pub const CANDLE_INTERVAL_6H: IntervalSc = 21600;
-pub const CANDLE_INTERVAL_8H: IntervalSc = 28800;
-pub const CANDLE_INTERVAL_12H: IntervalSc = 43200;
-pub const CANDLE_INTERVAL_1D: IntervalSc = 86400;
-pub const CANDLE_INTERVAL_3D: IntervalSc = 259200;
-pub const CANDLE_INTERVAL_1W: IntervalSc = 604800;
-pub const CANDLE_INTERVAL_1MON: IntervalSc = 2592000;
-pub const CANDLE_INTERVAL_3MON: IntervalSc = 7776000;
+pub const CANDLE_INTERVAL_SEC1: IntervalSc = 1;
+pub const CANDLE_INTERVAL_MIN1: IntervalSc = 60;
+pub const CANDLE_INTERVAL_MIN3: IntervalSc = 180;
+pub const CANDLE_INTERVAL_MIN5: IntervalSc = 300;
+pub const CANDLE_INTERVAL_MIN15: IntervalSc = 900;
+pub const CANDLE_INTERVAL_MIN30: IntervalSc = 1800;
+pub const CANDLE_INTERVAL_H1: IntervalSc = 3600;
+pub const CANDLE_INTERVAL_H2: IntervalSc = 7200;
+pub const CANDLE_INTERVAL_H4: IntervalSc = 14400;
+pub const CANDLE_INTERVAL_H6: IntervalSc = 21600;
+pub const CANDLE_INTERVAL_H8: IntervalSc = 28800;
+pub const CANDLE_INTERVAL_H12: IntervalSc = 43200;
+pub const CANDLE_INTERVAL_D1: IntervalSc = 86400;
+pub const CANDLE_INTERVAL_D3: IntervalSc = 259200;
+pub const CANDLE_INTERVAL_WEEK1: IntervalSc = 604800;
+pub const CANDLE_INTERVAL_MON1: IntervalSc = 2592000;
+pub const CANDLE_INTERVAL_MON3: IntervalSc = 7776000;
 
 #[derive(Debug, Clone, PartialEq, strum::EnumDiscriminants)]
 #[strum_discriminants(vis(pub), name(MarketDataType))]

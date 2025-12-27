@@ -7,6 +7,12 @@ edition = "2024"
 ephemera-shared = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+futures.workspace = true
+approx.workspace = true
 
 thiserror = "2.0"
 serde = { version = "1.0.228", features = ["derive"] }
+
+ndarray = "0.17"
+ndarray-stats = "0.6"
+pin-project = "1.1.10"

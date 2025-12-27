@@ -255,37 +255,63 @@ fn convert_okx_candle_datas(
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, strum::IntoStaticStr, strum::Display)]
-#[strum(serialize_all = "camelCase")]
 pub enum OkxCandleInterval {
-    Candle3M,
-    Candle1M,
-    Candle1W,
-    Candle1D,
-    Candle2D,
-    Candle3D,
-    Candle5D,
-    Candle12H,
-    Candle6H,
-    Candle4H,
-    Candle2H,
-    Candle1H,
-    Candle30m,
-    Candle15m,
-    Candle5m,
-    Candle3m,
-    Candle1m,
-    Candle1s,
+    #[strum(serialize = "candle3M")]
+    Mon3,
+    #[strum(serialize = "candle1M")]
+    Mon1,
+    #[strum(serialize = "candle1W")]
+    Week1,
+    #[strum(serialize = "candle1D")]
+    D1,
+    #[strum(serialize = "candle2D")]
+    D2,
+    #[strum(serialize = "candle3D")]
+    D3,
+    #[strum(serialize = "candle5D")]
+    D5,
+    #[strum(serialize = "candle12H")]
+    H12,
+    #[strum(serialize = "candle6H")]
+    H6,
+    #[strum(serialize = "candle4H")]
+    H4,
+    #[strum(serialize = "candle2H")]
+    H2,
+    #[strum(serialize = "candle1H")]
+    H1,
+    #[strum(serialize = "candle30m")]
+    Min30,
+    #[strum(serialize = "candle15m")]
+    Min15,
+    #[strum(serialize = "candle5m")]
+    Min5,
+    #[strum(serialize = "candle3m")]
+    Min3,
+    #[strum(serialize = "candle1m")]
+    Min1,
+    #[strum(serialize = "candle1s")]
+    Sec1,
 
     // UTC channels
-    Candle3Mutc,
-    Candle1Mutc,
-    Candle1Wutc,
-    Candle1Dutc,
-    Candle2Dutc,
-    Candle3Dutc,
-    Candle5Dutc,
-    Candle12Hutc,
-    Candle6Hutc,
+    #[strum(serialize = "candle3Mutc")]
+    UtcMon3,
+    #[strum(serialize = "candle1Mutc")]
+    UtcMon1,
+    #[strum(serialize = "candle1Wutc")]
+    UtcWeek1,
+    #[strum(serialize = "candle1Dutc")]
+    UtcD1,
+    #[strum(serialize = "candle2Dutc")]
+    UtcD2,
+    #[strum(serialize = "candle3Dutc")]
+    UtcD3,
+    #[strum(serialize = "candle5Dutc")]
+    UtcD5,
+    #[strum(serialize = "candle12Hutc")]
+    UtcH12,
+    #[strum(serialize = "candle6Hutc")]
+    UtcH6,
 
     Other(u64),
 }
@@ -293,33 +319,33 @@ pub enum OkxCandleInterval {
 impl From<OkxCandleInterval> for u64 {
     fn from(val: OkxCandleInterval) -> Self {
         match val {
-            OkxCandleInterval::Candle3M => CANDLE_INTERVAL_3MON,
-            OkxCandleInterval::Candle1M => CANDLE_INTERVAL_1MON,
-            OkxCandleInterval::Candle1W => CANDLE_INTERVAL_1W,
-            OkxCandleInterval::Candle1D => CANDLE_INTERVAL_1D,
-            OkxCandleInterval::Candle2D => CANDLE_INTERVAL_1D * 2,
-            OkxCandleInterval::Candle3D => CANDLE_INTERVAL_3D,
-            OkxCandleInterval::Candle5D => CANDLE_INTERVAL_1D * 5,
-            OkxCandleInterval::Candle12H => CANDLE_INTERVAL_12H,
-            OkxCandleInterval::Candle6H => CANDLE_INTERVAL_6H,
-            OkxCandleInterval::Candle4H => CANDLE_INTERVAL_4H,
-            OkxCandleInterval::Candle2H => CANDLE_INTERVAL_2H,
-            OkxCandleInterval::Candle1H => CANDLE_INTERVAL_1H,
-            OkxCandleInterval::Candle30m => CANDLE_INTERVAL_30M,
-            OkxCandleInterval::Candle15m => CANDLE_INTERVAL_15M,
-            OkxCandleInterval::Candle5m => CANDLE_INTERVAL_5M,
-            OkxCandleInterval::Candle3m => CANDLE_INTERVAL_3M,
-            OkxCandleInterval::Candle1m => CANDLE_INTERVAL_1M,
-            OkxCandleInterval::Candle1s => CANDLE_INTERVAL_1S,
-            OkxCandleInterval::Candle3Mutc => CANDLE_INTERVAL_3M,
-            OkxCandleInterval::Candle1Mutc => CANDLE_INTERVAL_1MON,
-            OkxCandleInterval::Candle1Wutc => CANDLE_INTERVAL_1W,
-            OkxCandleInterval::Candle1Dutc => CANDLE_INTERVAL_1D,
-            OkxCandleInterval::Candle2Dutc => CANDLE_INTERVAL_1D * 2,
-            OkxCandleInterval::Candle3Dutc => CANDLE_INTERVAL_3D,
-            OkxCandleInterval::Candle5Dutc => CANDLE_INTERVAL_1D * 5,
-            OkxCandleInterval::Candle12Hutc => CANDLE_INTERVAL_12H,
-            OkxCandleInterval::Candle6Hutc => CANDLE_INTERVAL_6H,
+            OkxCandleInterval::Mon3 => CANDLE_INTERVAL_MON3,
+            OkxCandleInterval::Mon1 => CANDLE_INTERVAL_MON1,
+            OkxCandleInterval::Week1 => CANDLE_INTERVAL_WEEK1,
+            OkxCandleInterval::D1 => CANDLE_INTERVAL_D1,
+            OkxCandleInterval::D2 => CANDLE_INTERVAL_D1 * 2,
+            OkxCandleInterval::D3 => CANDLE_INTERVAL_D3,
+            OkxCandleInterval::D5 => CANDLE_INTERVAL_D1 * 5,
+            OkxCandleInterval::H12 => CANDLE_INTERVAL_H12,
+            OkxCandleInterval::H6 => CANDLE_INTERVAL_H6,
+            OkxCandleInterval::H4 => CANDLE_INTERVAL_H4,
+            OkxCandleInterval::H2 => CANDLE_INTERVAL_H2,
+            OkxCandleInterval::H1 => CANDLE_INTERVAL_H1,
+            OkxCandleInterval::Min30 => CANDLE_INTERVAL_MIN30,
+            OkxCandleInterval::Min15 => CANDLE_INTERVAL_MIN15,
+            OkxCandleInterval::Min5 => CANDLE_INTERVAL_MIN5,
+            OkxCandleInterval::Min3 => CANDLE_INTERVAL_MIN3,
+            OkxCandleInterval::Min1 => CANDLE_INTERVAL_MIN1,
+            OkxCandleInterval::Sec1 => CANDLE_INTERVAL_SEC1,
+            OkxCandleInterval::UtcMon3 => CANDLE_INTERVAL_MIN3,
+            OkxCandleInterval::UtcMon1 => CANDLE_INTERVAL_MON1,
+            OkxCandleInterval::UtcWeek1 => CANDLE_INTERVAL_WEEK1,
+            OkxCandleInterval::UtcD1 => CANDLE_INTERVAL_D1,
+            OkxCandleInterval::UtcD2 => CANDLE_INTERVAL_D1 * 2,
+            OkxCandleInterval::UtcD3 => CANDLE_INTERVAL_D3,
+            OkxCandleInterval::UtcD5 => CANDLE_INTERVAL_D1 * 5,
+            OkxCandleInterval::UtcH12 => CANDLE_INTERVAL_H12,
+            OkxCandleInterval::UtcH6 => CANDLE_INTERVAL_H6,
             OkxCandleInterval::Other(interval) => interval,
         }
     }
@@ -368,8 +394,8 @@ mod tests {
 
     #[test]
     fn test_candle_interval_to_sting() {
-        assert_eq!(OkxCandleInterval::Candle1s.to_string(), "candle1s");
-        assert_eq!(OkxCandleInterval::Candle12Hutc.to_string(), "candle12Hutc");
+        assert_eq!(OkxCandleInterval::Sec1.to_string(), "candle1s");
+        assert_eq!(OkxCandleInterval::UtcH12.to_string(), "candle12Hutc");
     }
 
     #[tokio::test]
@@ -387,7 +413,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_okx_candle_data_stream() {
-        okx_candle_data_stream(SYMBOLS.to_vec(), OkxCandleInterval::Candle1s)
+        okx_candle_data_stream(SYMBOLS.to_vec(), OkxCandleInterval::Sec1)
             .await
             .unwrap()
             .take(TEST_DATA_NUM)
@@ -454,7 +480,7 @@ mod tests_xdp {
     #[tokio::test]
     async fn test_xdp_okx_candle_data_stream() {
         setup();
-        okx_xdp_candle_data_stream(SYMBOLS.to_vec(), OkxCandleInterval::Candle1s)
+        okx_xdp_candle_data_stream(SYMBOLS.to_vec(), OkxCandleInterval::Sec1)
             .await
             .unwrap()
             .take(TEST_DATA_NUM)

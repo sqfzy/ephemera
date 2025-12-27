@@ -293,22 +293,22 @@ where
 {
     let interval_str: &str = Deserialize::deserialize(deserializer)?;
     let interval = match interval_str {
-        "1s" => CANDLE_INTERVAL_1S,
-        "1m" => CANDLE_INTERVAL_1M,
-        "3m" => CANDLE_INTERVAL_3M,
-        "5m" => CANDLE_INTERVAL_5M,
-        "15m" => CANDLE_INTERVAL_15M,
-        "30m" => CANDLE_INTERVAL_30M,
-        "1h" => CANDLE_INTERVAL_1H,
-        "2h" => CANDLE_INTERVAL_2H,
-        "4h" => CANDLE_INTERVAL_4H,
-        "6h" => CANDLE_INTERVAL_6H,
-        "8h" => CANDLE_INTERVAL_8H,
-        "12h" => CANDLE_INTERVAL_12H,
-        "1d" => CANDLE_INTERVAL_1D,
-        "3d" => CANDLE_INTERVAL_3D,
-        "1w" => CANDLE_INTERVAL_1W,
-        "1M" => CANDLE_INTERVAL_1MON,
+        "1s" => CANDLE_INTERVAL_SEC1,
+        "1m" => CANDLE_INTERVAL_MIN1,
+        "3m" => CANDLE_INTERVAL_MIN3,
+        "5m" => CANDLE_INTERVAL_MIN5,
+        "15m" => CANDLE_INTERVAL_MIN15,
+        "30m" => CANDLE_INTERVAL_MIN30,
+        "1h" => CANDLE_INTERVAL_H1,
+        "2h" => CANDLE_INTERVAL_H2,
+        "4h" => CANDLE_INTERVAL_H4,
+        "6h" => CANDLE_INTERVAL_H6,
+        "8h" => CANDLE_INTERVAL_H8,
+        "12h" => CANDLE_INTERVAL_H12,
+        "1d" => CANDLE_INTERVAL_D1,
+        "3d" => CANDLE_INTERVAL_D3,
+        "1w" => CANDLE_INTERVAL_WEEK1,
+        "1M" => CANDLE_INTERVAL_MON1,
         _ => {
             return Err(serde::de::Error::custom(format!(
                 "Unknown interval: {interval_str}"

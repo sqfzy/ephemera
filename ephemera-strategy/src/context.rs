@@ -1,44 +1,6 @@
 use ephemera_shared::Symbol;
 use std::collections::HashMap;
 
-/// 持仓信息
-#[derive(Debug, Clone, Default)]
-pub struct Position {
-    pub symbol: Symbol,
-    pub size: f64,
-    pub avg_price: f64,
-}
-
-impl Position {
-    pub fn new(symbol: Symbol) -> Self {
-        Self {
-            symbol,
-            size: 0.0,
-            avg_price: 0.0,
-        }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.size == 0.0
-    }
-
-    pub fn value(&self, current_price: f64) -> f64 {
-        self.size * current_price
-    }
-
-    pub fn pnl(&self, current_price: f64) -> f64 {
-        self.size * (current_price - self.avg_price)
-    }
-
-    pub fn pnl_pct(&self, current_price: f64) -> f64 {
-        if self.avg_price == 0.0 {
-            0.0
-        } else {
-            (current_price - self.avg_price) / self.avg_price
-        }
-    }
-}
-
 /// 策略上下文，维护策略运行时状态
 #[derive(Debug, Clone, Default)]
 pub struct StrategyContext {
@@ -95,5 +57,43 @@ impl StrategyContext {
 
     pub fn all_positions(&self) -> impl Iterator<Item = (&Symbol, &Position)> {
         self.positions.iter()
+    }
+}
+
+/// 持仓信息
+#[derive(Debug, Clone, Default)]
+pub struct Position {
+    pub symbol: Symbol,
+    pub size: f64,
+    pub avg_price: f64,
+}
+
+impl Position {
+    pub fn new(symbol: Symbol) -> Self {
+        Self {
+            symbol,
+            size: 0.0,
+            avg_price: 0.0,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.size == 0.0
+    }
+
+    pub fn value(&self, current_price: f64) -> f64 {
+        self.size * current_price
+    }
+
+    pub fn pnl(&self, current_price: f64) -> f64 {
+        self.size * (current_price - self.avg_price)
+    }
+
+    pub fn pnl_pct(&self, current_price: f64) -> f64 {
+        if self.avg_price == 0.0 {
+            0.0
+        } else {
+            (current_price - self.avg_price) / self.avg_price
+        }
     }
 }
